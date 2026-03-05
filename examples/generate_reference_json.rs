@@ -1,5 +1,5 @@
 use color_eyre::eyre::Result;
-use detect_faces_test::detector::{DetectorConfig, Face, ScrfdDetector};
+use face_id::detector::{DetectorConfig, Face, ScrfdDetector};
 use serde::Serialize;
 use std::fs::{self, File};
 use std::path::Path;

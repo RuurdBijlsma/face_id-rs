@@ -1,4 +1,4 @@
-use detect_faces_test::detector::{DetectorConfig, Face, ScrfdDetector};
+use face_id::detector::{DetectorConfig, Face, ScrfdDetector};
 use serde::Deserialize;
 use std::fs::File;
 use std::path::Path;

@@ -481,21 +481,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "detect-faces-test"
-version = "0.1.0"
-dependencies = [
- "color-eyre",
- "criterion",
- "image",
- "imageproc",
- "ndarray",
- "ort",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -560,6 +545,21 @@ checksum = "7cd915d99f24784cdc19fd37ef22b97e3ff0ae756c7e492e9fbfe897d61e2aec"
 dependencies = [
  "indenter",
  "once_cell",
+]
+
+[[package]]
+name = "face-id"
+version = "0.1.0"
+dependencies = [
+ "color-eyre",
+ "criterion",
+ "image",
+ "imageproc",
+ "ndarray",
+ "ort",
+ "serde",
+ "serde_json",
+ "thiserror",
 ]
 
 [[package]]

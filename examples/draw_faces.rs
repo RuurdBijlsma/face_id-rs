@@ -1,5 +1,5 @@
 use color_eyre::eyre::Result;
-use detect_faces_test::detector::{DetectorConfig, ScrfdDetector};
+use face_id::detector::{DetectorConfig, ScrfdDetector};
 use image::{Rgb, RgbImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_hollow_rect_mut};
 use imageproc::rect::Rect;

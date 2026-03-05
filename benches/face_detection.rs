@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use detect_faces_test::detector::{DetectorConfig, ScrfdDetector};
+use face_id::detector::{DetectorConfig, ScrfdDetector};
 use ort::value::Value;
 use std::hint::black_box;
 
