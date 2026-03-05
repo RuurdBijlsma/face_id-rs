@@ -5,9 +5,6 @@ use serde::Deserialize;
 use std::fs::File;
 use std::path::Path;
 
-// Tolerance for floating point comparisons
-const EPSILON: f32 = 1e-3;
-
 #[derive(Deserialize)]
 struct ImageTestResult {
     filename: String,
@@ -16,7 +13,7 @@ struct ImageTestResult {
 
 fn assert_approx_eq(actual: f32, expected: f32, label: &str) {
     assert!(
-        (actual - expected).abs() < EPSILON,
+        (actual - expected).abs() < f32::EPSILON,
         "{}: {} is not approx {}, diff: {}",
         label,
         actual,
