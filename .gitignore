@@ -1,7 +1,4 @@
 /target
 .idea
-img/*.jpg
-img/*.png
 output.jpg
-assets/img/*
 output_previews/*

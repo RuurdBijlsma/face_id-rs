@@ -4,7 +4,7 @@ use ort::value::Value;
 use std::hint::black_box;
 
 const MODEL_PATH: &str = "assets/models/34g_gnkps.onnx";
-const IMG_PATH: &str = "assets/img/hink.jpg";
+const IMG_PATH: &str = "assets/img/da-vinki.jpg";
 
 /// Benchmarks the initialization of the detector (loading model + anchor generation)
 fn bench_init(c: &mut Criterion) {

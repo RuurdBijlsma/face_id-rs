@@ -134,6 +134,7 @@ impl ScrfdDetector {
         anchors
     }
 
+    #[must_use]
     pub fn preprocess(&self, img: &DynamicImage) -> (ImageBuffer<Rgb<u8>, Vec<u8>>, PreprocessParams) {
         let (w_in, h_in) = self.config.input_size;
         let (w_orig, h_orig) = img.dimensions();
@@ -160,9 +161,9 @@ impl ScrfdDetector {
         let mut array = ndarray::Array3::zeros((height as usize, width as usize, 3));
         for (x, y, pixel) in img.enumerate_pixels() {
             let rgb = pixel.0;
-            array[[y as usize, x as usize, 0]] = (rgb[0] as f32 - 127.5) / 128.0;
-            array[[y as usize, x as usize, 1]] = (rgb[1] as f32 - 127.5) / 128.0;
-            array[[y as usize, x as usize, 2]] = (rgb[2] as f32 - 127.5) / 128.0;
+            array[[y as usize, x as usize, 0]] = (f32::from(rgb[0]) - 127.5) / 128.0;
+            array[[y as usize, x as usize, 1]] = (f32::from(rgb[1]) - 127.5) / 128.0;
+            array[[y as usize, x as usize, 2]] = (f32::from(rgb[2]) - 127.5) / 128.0;
         }
 
         // HWC to CHW
@@ -181,9 +182,9 @@ impl ScrfdDetector {
         let mut candidate_faces = Vec::new();
 
         for (idx, &stride) in strides.iter().enumerate() {
-            let score_key = format!("score_{}", stride);
-            let bbox_key = format!("bbox_{}", stride);
-            let kps_key = format!("kps_{}", stride);
+            let score_key = format!("score_{stride}");
+            let bbox_key = format!("bbox_{stride}");
+            let kps_key = format!("kps_{stride}");
 
             let scores = outputs[score_key.as_str()].try_extract_array::<f32>()?.into_dimensionality::<Ix2>()?;
             let bboxes = outputs[bbox_key.as_str()].try_extract_array::<f32>()?.into_dimensionality::<Ix2>()?;
@@ -198,17 +199,17 @@ impl ScrfdDetector {
                 let dist = bboxes.slice(s![i, ..]);
                 let anchor = anchors.slice(s![i, ..]);
 
-                let x1 = (anchor[0] - dist[0] * stride as f32 - params.x_offset) / params.ratio;
-                let y1 = (anchor[1] - dist[1] * stride as f32 - params.y_offset) / params.ratio;
-                let x2 = (anchor[0] + dist[2] * stride as f32 - params.x_offset) / params.ratio;
-                let y2 = (anchor[1] + dist[3] * stride as f32 - params.y_offset) / params.ratio;
+                let x1 = (dist[0].mul_add(-(stride as f32), anchor[0]) - params.x_offset) / params.ratio;
+                let y1 = (dist[1].mul_add(-(stride as f32), anchor[1]) - params.y_offset) / params.ratio;
+                let x2 = (dist[2].mul_add(stride as f32, anchor[0]) - params.x_offset) / params.ratio;
+                let y2 = (dist[3].mul_add(stride as f32, anchor[1]) - params.y_offset) / params.ratio;
 
                 let kps_dist = kps.slice(s![i, ..]);
                 let mut landmarks = Vec::with_capacity(5);
                 for j in 0..5 {
                     landmarks.push((
-                        (anchor[0] + kps_dist[j * 2] * stride as f32 - params.x_offset) / params.ratio,
-                        (anchor[1] + kps_dist[j * 2 + 1] * stride as f32 - params.y_offset) / params.ratio,
+                        (kps_dist[j * 2].mul_add(stride as f32, anchor[0]) - params.x_offset) / params.ratio,
+                        (kps_dist[j * 2 + 1].mul_add(stride as f32, anchor[1]) - params.y_offset) / params.ratio,
                     ));
                 }
                 candidate_faces.push(Face {
