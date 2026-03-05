@@ -1,4 +1,6 @@
 /target
 .idea
-img/IMG*
+img/*.jpg
+img/*.png
 output.jpg
+assets/img/*

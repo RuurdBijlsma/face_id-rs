@@ -1,35 +1,19 @@
-use ndarray::{s, Array2, Array4, ArrayD, Ix2};
-use opencv::{core, dnn, imgcodecs, imgproc, prelude::*};
+use crate::error::DetectorError;
+use ndarray::{Array2, Array4, ArrayD, Ix2, s};
+use opencv::core::{Mat, MatTraitConst, MatTraitConstManual};
+use opencv::{core, dnn, imgproc};
 use ort::{session::Session, value::Value};
+use serde::{Deserialize, Serialize};
 use std::path::Path;
-use thiserror::Error;
 
-// --- Error Handling ---
-
-#[derive(Error, Debug)]
-pub enum DetectorError {
-    #[error("IO Error: {0}")]
-    Io(#[from] std::io::Error),
-    #[error("OpenCV Error: {0}")]
-    OpenCv(#[from] opencv::Error),
-    #[error("ONNX Runtime Error: {0}")]
-    Ort(#[from] ort::Error),
-    #[error("NdArray Error: {0}")]
-    NdArray(#[from] ndarray::ShapeError),
-    #[error("Image Decoding Error")]
-    Decode,
-}
-
-// --- Domain Models ---
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Face {
     pub bbox: BBox,
     pub landmarks: Option<Vec<(f32, f32)>>,
     pub score: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct BBox {
     pub x1: f32,
     pub y1: f32,
@@ -38,11 +22,21 @@ pub struct BBox {
 }
 
 impl BBox {
-    pub fn width(&self) -> f32 { self.x2 - self.x1 }
-    pub fn height(&self) -> f32 { self.y2 - self.y1 }
-    pub fn area(&self) -> f32 { self.width() * self.height() }
+    #[must_use]
+    pub fn width(&self) -> f32 {
+        self.x2 - self.x1
+    }
+    #[must_use]
+    pub fn height(&self) -> f32 {
+        self.y2 - self.y1
+    }
+    #[must_use]
+    pub fn area(&self) -> f32 {
+        self.width() * self.height()
+    }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DetectorConfig {
     pub input_size: (i32, i32),
     pub score_threshold: f32,
@@ -59,7 +53,12 @@ impl Default for DetectorConfig {
     }
 }
 
-// --- Detector Implementation ---
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PreprocessParams {
+    ratio: f32,
+    x_offset: i32,
+    y_offset: i32,
+}
 
 pub struct ScrfdDetector {
     session: Session,
@@ -69,9 +68,11 @@ pub struct ScrfdDetector {
 }
 
 impl ScrfdDetector {
-    pub fn new(model_path: impl AsRef<Path>, config: DetectorConfig) -> Result<Self, DetectorError> {
-        let session = Session::builder()?
-            .commit_from_file(model_path)?;
+    pub fn new(
+        model_path: impl AsRef<Path>,
+        config: DetectorConfig,
+    ) -> Result<Self, DetectorError> {
+        let session = Session::builder()?.commit_from_file(model_path)?;
 
         let strides = vec![8, 16, 32];
         let anchors = strides
@@ -79,7 +80,12 @@ impl ScrfdDetector {
             .map(|&s| Self::generate_anchors(config.input_size, s))
             .collect();
 
-        Ok(Self { session, config, anchors, strides })
+        Ok(Self {
+            session,
+            config,
+            anchors,
+            strides,
+        })
     }
 
     pub fn detect(&mut self, img: &Mat) -> Result<Vec<Face>, DetectorError> {
@@ -96,7 +102,7 @@ impl ScrfdDetector {
                 .collect::<Result<Vec<_>, ort::Error>>()?
         };
 
-        self.postprocess(output_tensors, params)
+        self.postprocess(&output_tensors, &params)
     }
 
     fn generate_anchors(input_size: (i32, i32), stride: i32) -> Array2<f32> {
@@ -123,19 +129,40 @@ impl ScrfdDetector {
         let (w_orig, h_orig) = (img.cols(), img.rows());
 
         let ratio = (w_in as f32 / w_orig as f32).min(h_in as f32 / h_orig as f32);
-        let (w_new, h_new) = ((w_orig as f32 * ratio) as i32, (h_orig as f32 * ratio) as i32);
+        let (w_new, h_new) = (
+            (w_orig as f32 * ratio) as i32,
+            (h_orig as f32 * ratio) as i32,
+        );
 
         let mut resized = Mat::default();
-        imgproc::resize(img, &mut resized, core::Size::new(w_new, h_new), 0.0, 0.0, imgproc::INTER_LINEAR)?;
+        imgproc::resize(
+            img,
+            &mut resized,
+            core::Size::new(w_new, h_new),
+            0.0,
+            0.0,
+            imgproc::INTER_LINEAR,
+        )?;
 
-        let mut padded = Mat::new_rows_cols_with_default(h_in, w_in, img.typ(), core::Scalar::all(0.0))?;
+        let mut padded =
+            Mat::new_rows_cols_with_default(h_in, w_in, img.typ(), core::Scalar::all(0.0))?;
         let x_offset = (w_in - w_new) / 2;
         let y_offset = (h_in - h_new) / 2;
 
-        let mut roi = Mat::roi_mut(&mut padded, core::Rect::new(x_offset, y_offset, w_new, h_new))?;
+        let mut roi = Mat::roi_mut(
+            &mut padded,
+            core::Rect::new(x_offset, y_offset, w_new, h_new),
+        )?;
         resized.copy_to(&mut roi)?;
 
-        Ok((padded, PreprocessParams { ratio, x_offset, y_offset }))
+        Ok((
+            padded,
+            PreprocessParams {
+                ratio,
+                x_offset,
+                y_offset,
+            },
+        ))
     }
 
     fn create_input_tensor(&self, img: &Mat) -> Result<Array4<f32>, DetectorError> {
@@ -150,11 +177,20 @@ impl ScrfdDetector {
         )?;
 
         let data: Vec<f32> = blob.data_typed()?.to_vec();
-        let shape = (1, 3, self.config.input_size.1 as usize, self.config.input_size.0 as usize);
+        let shape = (
+            1,
+            3,
+            self.config.input_size.1 as usize,
+            self.config.input_size.0 as usize,
+        );
         Ok(Array4::from_shape_vec(shape, data)?)
     }
 
-    fn postprocess(&self, outputs: Vec<ArrayD<f32>>, params: PreprocessParams) -> Result<Vec<Face>, DetectorError> {
+    fn postprocess(
+        &self,
+        outputs: &[ArrayD<f32>],
+        params: &PreprocessParams,
+    ) -> Result<Vec<Face>, DetectorError> {
         let mut candidate_faces = Vec::new();
         let fmc = 3;
 
@@ -167,22 +203,32 @@ impl ScrfdDetector {
 
             for i in 0..scores.nrows() {
                 let score = scores[[i, 0]];
-                if score < self.config.score_threshold { continue; }
+                if score < self.config.score_threshold {
+                    continue;
+                }
 
                 let dist = bboxes.slice(s![i, ..]);
                 let anchor = anchors.slice(s![i, ..]);
 
-                let x1 = (anchor[0] - dist[0] * stride as f32 - params.x_offset as f32) / params.ratio;
-                let y1 = (anchor[1] - dist[1] * stride as f32 - params.y_offset as f32) / params.ratio;
-                let x2 = (anchor[0] + dist[2] * stride as f32 - params.x_offset as f32) / params.ratio;
-                let y2 = (anchor[1] + dist[3] * stride as f32 - params.y_offset as f32) / params.ratio;
+                let x1 = (dist[0].mul_add(-(stride as f32), anchor[0]) - params.x_offset as f32)
+                    / params.ratio;
+                let y1 = (dist[1].mul_add(-(stride as f32), anchor[1]) - params.y_offset as f32)
+                    / params.ratio;
+                let x2 = (dist[2].mul_add(stride as f32, anchor[0]) - params.x_offset as f32)
+                    / params.ratio;
+                let y2 = (dist[3].mul_add(stride as f32, anchor[1]) - params.y_offset as f32)
+                    / params.ratio;
 
                 let kps_dist = kps.slice(s![i, ..]);
                 let mut landmarks = Vec::with_capacity(5);
                 for j in 0..5 {
                     landmarks.push((
-                        (anchor[0] + kps_dist[j * 2] * stride as f32 - params.x_offset as f32) / params.ratio,
-                        (anchor[1] + kps_dist[j * 2 + 1] * stride as f32 - params.y_offset as f32) / params.ratio,
+                        (kps_dist[j * 2].mul_add(stride as f32, anchor[0])
+                            - params.x_offset as f32)
+                            / params.ratio,
+                        (kps_dist[j * 2 + 1].mul_add(stride as f32, anchor[1])
+                            - params.y_offset as f32)
+                            / params.ratio,
                     ));
                 }
 
@@ -203,11 +249,16 @@ impl ScrfdDetector {
         let mut active = vec![true; faces.len()];
 
         for i in 0..faces.len() {
-            if !active[i] { continue; }
+            if !active[i] {
+                continue;
+            }
             keep.push(faces[i].clone());
 
             for j in (i + 1)..faces.len() {
-                if active[j] && self.calculate_iou(&faces[i].bbox, &faces[j].bbox) > self.config.iou_threshold {
+                if active[j]
+                    && Self::calculate_iou(&faces[i].bbox, &faces[j].bbox)
+                        > self.config.iou_threshold
+                {
                     active[j] = false;
                 }
             }
@@ -215,55 +266,16 @@ impl ScrfdDetector {
         keep
     }
 
-    fn calculate_iou(&self, a: &BBox, b: &BBox) -> f32 {
+    fn calculate_iou(a: &BBox, b: &BBox) -> f32 {
         let x1 = a.x1.max(b.x1);
         let y1 = a.y1.max(b.y1);
         let x2 = a.x2.min(b.x2);
         let y2 = a.y2.min(b.y2);
 
         let intersection = (x2 - x1).max(0.0) * (y2 - y1).max(0.0);
-        if intersection <= 0.0 { return 0.0; }
+        if intersection <= 0.0 {
+            return 0.0;
+        }
         intersection / (a.area() + b.area() - intersection)
     }
-}
-
-struct PreprocessParams {
-    ratio: f32,
-    x_offset: i32,
-    y_offset: i32,
-}
-
-// --- Driver ---
-
-fn main() -> anyhow::Result<()> {
-    let image_path = "img/IMG_20200524_183102.jpg";
-    let model_path = "models/34g_gnkps.onnx";
-
-    let mut detector = ScrfdDetector::new(model_path, DetectorConfig::default())?;
-
-    let image_bytes = std::fs::read(image_path)?;
-    let mut img = imgcodecs::imdecode(&core::Vector::from_slice(&image_bytes), imgcodecs::IMREAD_COLOR)?;
-    if img.empty() { return Err(DetectorError::Decode.into()); }
-
-    let faces = detector.detect(&img)?;
-    println!("Detected {} faces", faces.len());
-
-    for face in faces {
-        let b = face.bbox;
-        imgproc::rectangle(
-            &mut img,
-            core::Rect::new(b.x1 as i32, b.y1 as i32, b.width() as i32, b.height() as i32),
-            core::Scalar::new(0.0, 255.0, 0.0, 0.0),
-            2, imgproc::LINE_8, 0
-        )?;
-
-        if let Some(lms) = face.landmarks {
-            for pt in lms {
-                imgproc::circle(&mut img, core::Point::new(pt.0 as i32, pt.1 as i32), 2, core::Scalar::new(0.0, 0.0, 255.0, 0.0), -1, imgproc::LINE_AA, 0)?;
-            }
-        }
-    }
-
-    imgcodecs::imwrite("output.jpg", &img, &core::Vector::new())?;
-    Ok(())
 }

@@ -1,16 +1,19 @@
 [package]
-name = "face-recog-test"
+name = "detect-faces-test"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 ort = { version = "2.0.0-rc.11", features = ["ndarray"] }
-opencv-binding-generator = "0.100.0"
 opencv = "0.98.1"
 ndarray = "0.17.2"
-uuid = "1.20.0"
-anyhow = "1.0.101"
-ndarray-stats = "0.7.0"
-tokio = { version = "1.0", features = ["full"], optional = true }
-log = "0.4"
 thiserror = "2.0.18"
+serde = { version = "1.0.228", optional = true, features = ["derive"] }
+serde_json = { version = "1.0.149", optional = true }
+
+[dev-dependencies]
+color-eyre = "0.6.5"
+
+[features]
+default = ["serde"]
+serde = ["dep:serde", "dep:serde_json"]
