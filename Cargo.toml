@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-ort = { version = "2.0.0-rc.11", features = ["ndarray"] }
-opencv = "0.98.1"
+ort = { version = "2.0.0-rc.12", features = ["ndarray"] }
 ndarray = "0.17.2"
 thiserror = "2.0.18"
+image = "0.25.5"
 serde = { version = "1.0.228", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.149", optional = true }
 
@@ -15,7 +15,32 @@ serde_json = { version = "1.0.149", optional = true }
 color-eyre = "0.6.5"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149" }
+imageproc = "0.26.1"
+criterion = { version = "0.8.1", features = ["html_reports"] }
 
 [features]
-default = ["serde"]
+default = ["serde", "download-binaries", "copy-dylibs"]
 serde = ["dep:serde", "dep:serde_json"]
+download-binaries = ["ort/download-binaries"]
+copy-dylibs = ["ort/copy-dylibs"]
+load-dynamic = ["ort/load-dynamic"]
+# ort execution providers
+cuda = ["ort/cuda"]
+tensorrt = ["ort/tensorrt"]
+nvrtx = ["ort/nvrtx"]
+xnnpack = ["ort/xnnpack"]
+webgpu = ["ort/webgpu"]
+directml = ["ort/directml"]
+coreml = ["ort/coreml"]
+migraphx = ["ort/migraphx"]
+openvino = ["ort/openvino"]
+onednn = ["ort/onednn"]
+qnn = ["ort/qnn"]
+cann = ["ort/cann"]
+nnapi = ["ort/nnapi"]
+tvm = ["ort/tvm"]
+acl = ["ort/acl"]
+armnn = ["ort/armnn"]
+vitis = ["ort/vitis"]
+rknpu = ["ort/rknpu"]
+azure = ["ort/azure"]

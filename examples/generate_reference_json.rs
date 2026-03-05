@@ -1,9 +1,8 @@
 use color_eyre::eyre::Result;
 use detect_faces_test::detector::{DetectorConfig, Face, ScrfdDetector};
-use opencv::core::MatTraitConst;
-use opencv::imgcodecs;
 use serde::Serialize;
-use std::fs::File;
+use std::fs::{self, File};
+use std::path::Path;
 
 #[derive(Serialize)]
 struct ImageTestResult {
@@ -18,16 +17,21 @@ fn main() -> Result<()> {
     let img_dir = "assets/img";
     let output_json = "assets/reference_output/test_data.json";
 
+    // Ensure the output directory exists
+    if let Some(parent) = Path::new(output_json).parent() {
+        fs::create_dir_all(parent)?;
+    }
+
     let mut detector = ScrfdDetector::new(model_path, DetectorConfig::default())?;
     let mut all_results = Vec::new();
 
-    let entries = std::fs::read_dir(img_dir)?;
+    let entries = fs::read_dir(img_dir)?;
 
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
 
-        // Check if it's an image
+        // Filter for image files
         let extension = path
             .extension()
             .and_then(|s| s.to_str())
@@ -41,20 +45,17 @@ fn main() -> Result<()> {
         let filename = path.file_name().unwrap().to_string_lossy().into_owned();
         println!("Processing {}...", filename);
 
-        // Load image
-        let img = imgcodecs::imread(path.to_str().unwrap(), imgcodecs::IMREAD_COLOR)?;
-        if img.empty() {
-            eprintln!("Could not read image: {}", filename);
-            continue;
-        }
+        // 1. Load image using the 'image' crate
+        let img = image::open(&path)?;
 
-        // Run detection
+        // 2. Run detection
         let faces = detector.detect(&img)?;
+        println!("  -> Found {} faces", faces.len());
 
         all_results.push(ImageTestResult { filename, faces });
     }
 
-    // Write to JSON file
+    // 3. Write results to JSON file
     let file = File::create(output_json)?;
     serde_json::to_writer_pretty(file, &all_results)?;
 

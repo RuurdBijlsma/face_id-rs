@@ -1,7 +1,6 @@
 use crate::error::DetectorError;
-use ndarray::{Array2, Array4, Ix2, s};
-use opencv::core::{Mat, MatTraitConst, MatTraitConstManual};
-use opencv::{core, dnn, imgproc};
+use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
+use ndarray::{Array4, Axis, Ix2, s, Array2};
 use ort::{
     session::{Session, SessionOutputs},
     value::Value,
@@ -27,23 +26,17 @@ pub struct BBox {
 
 impl BBox {
     #[must_use]
-    pub fn width(&self) -> f32 {
-        self.x2 - self.x1
-    }
+    pub fn width(&self) -> f32 { self.x2 - self.x1 }
     #[must_use]
-    pub fn height(&self) -> f32 {
-        self.y2 - self.y1
-    }
+    pub fn height(&self) -> f32 { self.y2 - self.y1 }
     #[must_use]
-    pub fn area(&self) -> f32 {
-        self.width() * self.height()
-    }
+    pub fn area(&self) -> f32 { self.width() * self.height() }
 }
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DetectorConfig {
-    pub input_size: (i32, i32),
+    pub input_size: (u32, u32),
     pub score_threshold: f32,
     pub iou_threshold: f32,
 }
@@ -79,7 +72,6 @@ impl ScrfdDetector {
         config: DetectorConfig,
     ) -> Result<Self, DetectorError> {
         let session = Session::builder()?.commit_from_file(model_path)?;
-
         let input_name = session.inputs()[0].name().to_string();
 
         let mut strides: Vec<i32> = session
@@ -94,10 +86,9 @@ impl ScrfdDetector {
             })
             .collect();
         strides.sort_unstable();
+
         if strides.is_empty() {
-            return Err(DetectorError::InvalidModel(
-                "No stride info found in ONNX model".to_owned(),
-            ));
+            return Err(DetectorError::InvalidModel("No stride info found".into()));
         }
 
         let anchors = strides
@@ -105,21 +96,16 @@ impl ScrfdDetector {
             .map(|&s| Self::generate_anchors(config.input_size, s))
             .collect();
 
-        Ok(Self {
-            session,
-            config,
-            anchors,
-            strides,
-            input_name,
-        })
+        Ok(Self { session, config, anchors, strides, input_name })
     }
 
-    pub fn detect(&mut self, img: &Mat) -> Result<Vec<Face>, DetectorError> {
-        let (processed_img, params) = self.preprocess(img)?;
+    pub fn detect(&mut self, img: &DynamicImage) -> Result<Vec<Face>, DetectorError> {
+        let (processed_img, params) = self.preprocess(img);
         let input_tensor = self.create_input_tensor(&processed_img)?;
         let input_value = Value::from_array(input_tensor)?;
         let inputs = ort::inputs![&self.input_name => input_value];
         let outputs = self.session.run(inputs)?;
+
         Self::postprocess(
             &outputs,
             &params,
@@ -129,9 +115,9 @@ impl ScrfdDetector {
         )
     }
 
-    fn generate_anchors(input_size: (i32, i32), stride: i32) -> Array2<f32> {
-        let h = (input_size.1 / stride) as usize;
-        let w = (input_size.0 / stride) as usize;
+    fn generate_anchors(input_size: (u32, u32), stride: i32) -> Array2<f32> {
+        let h = (input_size.1 / stride as u32) as usize;
+        let w = (input_size.0 / stride as u32) as usize;
         let mut anchors = Array2::zeros((h * w * 2, 2));
 
         for y in 0..h {
@@ -148,66 +134,41 @@ impl ScrfdDetector {
         anchors
     }
 
-    fn preprocess(&self, img: &Mat) -> Result<(Mat, PreprocessParams), DetectorError> {
+    fn preprocess(&self, img: &DynamicImage) -> (ImageBuffer<Rgb<u8>, Vec<u8>>, PreprocessParams) {
         let (w_in, h_in) = self.config.input_size;
-        let (w_orig, h_orig) = (img.cols(), img.rows());
+        let (w_orig, h_orig) = img.dimensions();
 
         let ratio = (w_in as f32 / w_orig as f32).min(h_in as f32 / h_orig as f32);
-        let (w_new, h_new) = (
-            (w_orig as f32 * ratio) as i32,
-            (h_orig as f32 * ratio) as i32,
-        );
+        let w_new = (w_orig as f32 * ratio).round() as u32;
+        let h_new = (h_orig as f32 * ratio).round() as u32;
 
-        let mut resized = Mat::default();
-        imgproc::resize(
-            img,
-            &mut resized,
-            core::Size::new(w_new, h_new),
-            0.0,
-            0.0,
-            imgproc::INTER_LINEAR,
-        )?;
+        let resized = img.resize_exact(w_new, h_new, image::imageops::FilterType::Triangle);
 
-        let mut padded =
-            Mat::new_rows_cols_with_default(h_in, w_in, img.typ(), core::Scalar::all(0.0))?;
+        let mut padded = ImageBuffer::new(w_in, h_in);
         let x_offset = (w_in - w_new) as f32 / 2.0;
         let y_offset = (h_in - h_new) as f32 / 2.0;
 
-        let mut roi = Mat::roi_mut(
-            &mut padded,
-            core::Rect::new(x_offset as i32, y_offset as i32, w_new, h_new),
-        )?;
-        resized.copy_to(&mut roi)?;
+        image::imageops::overlay(&mut padded, &resized.to_rgb8(), x_offset as i64, y_offset as i64);
 
-        Ok((
-            padded,
-            PreprocessParams {
-                ratio,
-                x_offset,
-                y_offset,
-            },
-        ))
+        (padded, PreprocessParams { ratio, x_offset, y_offset })
     }
 
-    fn create_input_tensor(&self, img: &Mat) -> Result<Array4<f32>, DetectorError> {
-        let blob = dnn::blob_from_image(
-            img,
-            1.0 / 128.0,
-            core::Size::new(self.config.input_size.0, self.config.input_size.1),
-            core::Scalar::new(127.5, 127.5, 127.5, 0.0),
-            true,
-            false,
-            core::CV_32F,
-        )?;
+    fn create_input_tensor(&self, img: &ImageBuffer<Rgb<u8>, Vec<u8>>) -> Result<Array4<f32>, DetectorError> {
+        let (width, height) = img.dimensions();
 
-        let data: Vec<f32> = blob.data_typed()?.to_vec();
-        let shape = (
-            1,
-            3,
-            self.config.input_size.1 as usize,
-            self.config.input_size.0 as usize,
-        );
-        Ok(Array4::from_shape_vec(shape, data)?)
+        // Convert ImageBuffer to ndarray (H, W, C)
+        let mut array = ndarray::Array3::zeros((height as usize, width as usize, 3));
+        for (x, y, pixel) in img.enumerate_pixels() {
+            let rgb = pixel.0;
+            array[[y as usize, x as usize, 0]] = (rgb[0] as f32 - 127.5) / 128.0;
+            array[[y as usize, x as usize, 1]] = (rgb[1] as f32 - 127.5) / 128.0;
+            array[[y as usize, x as usize, 2]] = (rgb[2] as f32 - 127.5) / 128.0;
+        }
+
+        // HWC to CHW
+        let array = array.permuted_axes([2, 0, 1]);
+        // Add batch dimension: NCHW
+        Ok(array.insert_axis(Axis(0)))
     }
 
     fn postprocess(
@@ -224,23 +185,16 @@ impl ScrfdDetector {
             let bbox_key = format!("bbox_{}", stride);
             let kps_key = format!("kps_{}", stride);
 
-            let scores = outputs[score_key.as_str()]
-                .try_extract_array::<f32>()?
-                .into_dimensionality::<Ix2>()?;
-            let bboxes = outputs[bbox_key.as_str()]
-                .try_extract_array::<f32>()?
-                .into_dimensionality::<Ix2>()?;
-            let kps = outputs[kps_key.as_str()]
-                .try_extract_array::<f32>()?
-                .into_dimensionality::<Ix2>()?;
+            let scores = outputs[score_key.as_str()].try_extract_array::<f32>()?.into_dimensionality::<Ix2>()?;
+            let bboxes = outputs[bbox_key.as_str()].try_extract_array::<f32>()?.into_dimensionality::<Ix2>()?;
+            let kps = outputs[kps_key.as_str()].try_extract_array::<f32>()?.into_dimensionality::<Ix2>()?;
 
             let anchors = &anchors_list[idx];
 
             for i in 0..scores.nrows() {
                 let score = scores[[i, 0]];
-                if score < config.score_threshold {
-                    continue;
-                }
+                if score < config.score_threshold { continue; }
+
                 let dist = bboxes.slice(s![i, ..]);
                 let anchor = anchors.slice(s![i, ..]);
 
@@ -253,10 +207,8 @@ impl ScrfdDetector {
                 let mut landmarks = Vec::with_capacity(5);
                 for j in 0..5 {
                     landmarks.push((
-                        (anchor[0] + kps_dist[j * 2] * stride as f32 - params.x_offset)
-                            / params.ratio,
-                        (anchor[1] + kps_dist[j * 2 + 1] * stride as f32 - params.y_offset)
-                            / params.ratio,
+                        (anchor[0] + kps_dist[j * 2] * stride as f32 - params.x_offset) / params.ratio,
+                        (anchor[1] + kps_dist[j * 2 + 1] * stride as f32 - params.y_offset) / params.ratio,
                     ));
                 }
                 candidate_faces.push(Face {
@@ -270,22 +222,12 @@ impl ScrfdDetector {
     }
 
     fn apply_nms(mut faces: Vec<Face>, iou_threshold: f32) -> Vec<Face> {
-        faces.sort_unstable_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        faces.sort_unstable_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
         let mut suppressed = vec![false; faces.len()];
-        let num_faces = faces.len();
-        for i in 0..num_faces {
-            if suppressed[i] {
-                continue;
-            }
-            for j in (i + 1)..num_faces {
-                if suppressed[j] {
-                    continue;
-                }
-
+        for i in 0..faces.len() {
+            if suppressed[i] { continue; }
+            for j in (i + 1)..faces.len() {
+                if suppressed[j] { continue; }
                 if Self::calculate_iou(&faces[i].bbox, &faces[j].bbox) > iou_threshold {
                     suppressed[j] = true;
                 }
@@ -297,7 +239,6 @@ impl ScrfdDetector {
             idx += 1;
             keep
         });
-
         faces
     }
 
@@ -306,16 +247,8 @@ impl ScrfdDetector {
         let y1 = a.y1.max(b.y1);
         let x2 = a.x2.min(b.x2);
         let y2 = a.y2.min(b.y2);
-        let intersection_width = (x2 - x1).max(0.0);
-        let intersection_height = (y2 - y1).max(0.0);
-        let intersection_area = intersection_width * intersection_height;
-        if intersection_area <= 0.0 {
-            return 0.0;
-        }
-        let union_area = a.area() + b.area() - intersection_area;
-        if union_area <= 0.0 {
-            return 0.0;
-        }
-        intersection_area / union_area
+        let intersection = (x2 - x1).max(0.0) * (y2 - y1).max(0.0);
+        if intersection <= 0.0 { return 0.0; }
+        intersection / (a.area() + b.area() - intersection)
     }
 }
