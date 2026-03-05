@@ -143,7 +143,7 @@ impl ScrfdDetector {
         let w_new = (w_orig as f32 * ratio).round() as u32;
         let h_new = (h_orig as f32 * ratio).round() as u32;
 
-        let resized = img.resize_exact(w_new, h_new, image::imageops::FilterType::Triangle);
+        let resized = img.resize_exact(w_new, h_new, image::imageops::FilterType::CatmullRom);
 
         let mut padded = ImageBuffer::new(w_in, h_in);
         let x_offset = (w_in - w_new) as f32 / 2.0;
