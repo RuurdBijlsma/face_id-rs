@@ -24,4 +24,4 @@ jobs:
         with:
           key: ${{ github.job }}
       - name: Run Clippy
-        run: cargo clippy --no-deps --all-features --tests --benches -- -W clippy::all -W clippy::pedantic -W clippy::nursery
+        run: cargo clippy --no-deps --all-features --tests --benches -- -D clippy::all -D clippy::pedantic -D clippy::nursery
