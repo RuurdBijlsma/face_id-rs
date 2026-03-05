@@ -6,8 +6,8 @@ use detect_faces_test::detector::{DetectorConfig, ScrfdDetector};
 use detect_faces_test::error::DetectorError;
 
 fn main() -> Result<()> {
-    let image_path = "img/IMG_20200524_183102.jpg";
-    let model_path = "models/34g_gnkps.onnx";
+    let image_path = "assets/img/IMG_20200524_183102.jpg";
+    let model_path = "assets/models/34g_gnkps.onnx";
 
     let mut detector = ScrfdDetector::new(model_path, DetectorConfig::default())?;
 

@@ -1,10 +1,11 @@
 use crate::error::DetectorError;
-use ndarray::{Array2, Array4, ArrayD, Ix2, s};
+use ndarray::{Array2, Array4, Ix2, s};
 use opencv::core::{Mat, MatTraitConst, MatTraitConstManual};
 use opencv::{core, dnn, imgproc};
-use ort::{session::Session, value::Value};
-#[cfg(feature = "serde")]
-use serde::{Deserialize, Serialize};
+use ort::{
+    session::{Session, SessionOutputs},
+    value::Value,
+};
 use std::path::Path;
 
 #[derive(Debug, Clone)]
@@ -58,11 +59,10 @@ impl Default for DetectorConfig {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct PreprocessParams {
     ratio: f32,
-    x_offset: i32,
-    y_offset: i32,
+    x_offset: f32,
+    y_offset: f32,
 }
 
 pub struct ScrfdDetector {
@@ -70,6 +70,7 @@ pub struct ScrfdDetector {
     config: DetectorConfig,
     anchors: Vec<Array2<f32>>,
     strides: Vec<i32>,
+    input_name: String,
 }
 
 impl ScrfdDetector {
@@ -79,7 +80,26 @@ impl ScrfdDetector {
     ) -> Result<Self, DetectorError> {
         let session = Session::builder()?.commit_from_file(model_path)?;
 
-        let strides = vec![8, 16, 32];
+        let input_name = session.inputs()[0].name().to_string();
+
+        let mut strides: Vec<i32> = session
+            .outputs()
+            .iter()
+            .filter_map(|output| {
+                if output.name().starts_with("score_") {
+                    output.name()["score_".len()..].parse::<i32>().ok()
+                } else {
+                    None
+                }
+            })
+            .collect();
+        strides.sort_unstable();
+        if strides.is_empty() {
+            return Err(DetectorError::InvalidModel(
+                "No stride info found in ONNX model".to_owned(),
+            ));
+        }
+
         let anchors = strides
             .iter()
             .map(|&s| Self::generate_anchors(config.input_size, s))
@@ -90,6 +110,7 @@ impl ScrfdDetector {
             config,
             anchors,
             strides,
+            input_name,
         })
     }
 
@@ -97,17 +118,15 @@ impl ScrfdDetector {
         let (processed_img, params) = self.preprocess(img)?;
         let input_tensor = self.create_input_tensor(&processed_img)?;
         let input_value = Value::from_array(input_tensor)?;
-        let inputs = ort::inputs!["input.1" => input_value];
-        let output_tensors: Vec<ArrayD<f32>> = {
-            let outputs = self.session.run(inputs)?;
-
-            outputs
-                .iter()
-                .map(|(_, v)| v.try_extract_array().map(|a| a.to_owned()))
-                .collect::<Result<Vec<_>, ort::Error>>()?
-        };
-
-        self.postprocess(&output_tensors, &params)
+        let inputs = ort::inputs![&self.input_name => input_value];
+        let outputs = self.session.run(inputs)?;
+        Self::postprocess(
+            &outputs,
+            &params,
+            &self.strides,
+            &self.anchors,
+            &self.config,
+        )
     }
 
     fn generate_anchors(input_size: (i32, i32), stride: i32) -> Array2<f32> {
@@ -151,12 +170,12 @@ impl ScrfdDetector {
 
         let mut padded =
             Mat::new_rows_cols_with_default(h_in, w_in, img.typ(), core::Scalar::all(0.0))?;
-        let x_offset = (w_in - w_new) / 2;
-        let y_offset = (h_in - h_new) / 2;
+        let x_offset = (w_in - w_new) as f32 / 2.0;
+        let y_offset = (h_in - h_new) as f32 / 2.0;
 
         let mut roi = Mat::roi_mut(
             &mut padded,
-            core::Rect::new(x_offset, y_offset, w_new, h_new),
+            core::Rect::new(x_offset as i32, y_offset as i32, w_new, h_new),
         )?;
         resized.copy_to(&mut roi)?;
 
@@ -192,51 +211,54 @@ impl ScrfdDetector {
     }
 
     fn postprocess(
-        &self,
-        outputs: &[ArrayD<f32>],
+        outputs: &SessionOutputs,
         params: &PreprocessParams,
+        strides: &[i32],
+        anchors_list: &[Array2<f32>],
+        config: &DetectorConfig,
     ) -> Result<Vec<Face>, DetectorError> {
         let mut candidate_faces = Vec::new();
-        let fmc = 3;
 
-        for (idx, &stride) in self.strides.iter().enumerate() {
-            let scores = outputs[idx].view().into_dimensionality::<Ix2>()?;
-            let bboxes = outputs[idx + fmc].view().into_dimensionality::<Ix2>()?;
-            let kps = outputs[idx + fmc * 2].view().into_dimensionality::<Ix2>()?;
+        for (idx, &stride) in strides.iter().enumerate() {
+            let score_key = format!("score_{}", stride);
+            let bbox_key = format!("bbox_{}", stride);
+            let kps_key = format!("kps_{}", stride);
 
-            let anchors = &self.anchors[idx];
+            let scores = outputs[score_key.as_str()]
+                .try_extract_array::<f32>()?
+                .into_dimensionality::<Ix2>()?;
+            let bboxes = outputs[bbox_key.as_str()]
+                .try_extract_array::<f32>()?
+                .into_dimensionality::<Ix2>()?;
+            let kps = outputs[kps_key.as_str()]
+                .try_extract_array::<f32>()?
+                .into_dimensionality::<Ix2>()?;
+
+            let anchors = &anchors_list[idx];
 
             for i in 0..scores.nrows() {
                 let score = scores[[i, 0]];
-                if score < self.config.score_threshold {
+                if score < config.score_threshold {
                     continue;
                 }
-
                 let dist = bboxes.slice(s![i, ..]);
                 let anchor = anchors.slice(s![i, ..]);
 
-                let x1 = (dist[0].mul_add(-(stride as f32), anchor[0]) - params.x_offset as f32)
-                    / params.ratio;
-                let y1 = (dist[1].mul_add(-(stride as f32), anchor[1]) - params.y_offset as f32)
-                    / params.ratio;
-                let x2 = (dist[2].mul_add(stride as f32, anchor[0]) - params.x_offset as f32)
-                    / params.ratio;
-                let y2 = (dist[3].mul_add(stride as f32, anchor[1]) - params.y_offset as f32)
-                    / params.ratio;
+                let x1 = (anchor[0] - dist[0] * stride as f32 - params.x_offset) / params.ratio;
+                let y1 = (anchor[1] - dist[1] * stride as f32 - params.y_offset) / params.ratio;
+                let x2 = (anchor[0] + dist[2] * stride as f32 - params.x_offset) / params.ratio;
+                let y2 = (anchor[1] + dist[3] * stride as f32 - params.y_offset) / params.ratio;
 
                 let kps_dist = kps.slice(s![i, ..]);
                 let mut landmarks = Vec::with_capacity(5);
                 for j in 0..5 {
                     landmarks.push((
-                        (kps_dist[j * 2].mul_add(stride as f32, anchor[0])
-                            - params.x_offset as f32)
+                        (anchor[0] + kps_dist[j * 2] * stride as f32 - params.x_offset)
                             / params.ratio,
-                        (kps_dist[j * 2 + 1].mul_add(stride as f32, anchor[1])
-                            - params.y_offset as f32)
+                        (anchor[1] + kps_dist[j * 2 + 1] * stride as f32 - params.y_offset)
                             / params.ratio,
                     ));
                 }
-
                 candidate_faces.push(Face {
                     bbox: BBox { x1, y1, x2, y2 },
                     landmarks: Some(landmarks),
@@ -244,31 +266,39 @@ impl ScrfdDetector {
                 });
             }
         }
-
-        Ok(self.apply_nms(candidate_faces))
+        Ok(Self::apply_nms(candidate_faces, config.iou_threshold))
     }
 
-    fn apply_nms(&self, mut faces: Vec<Face>) -> Vec<Face> {
-        faces.sort_unstable_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
-        let mut keep = Vec::new();
-        let mut active = vec![true; faces.len()];
-
-        for i in 0..faces.len() {
-            if !active[i] {
+    fn apply_nms(mut faces: Vec<Face>, iou_threshold: f32) -> Vec<Face> {
+        faces.sort_unstable_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut suppressed = vec![false; faces.len()];
+        let num_faces = faces.len();
+        for i in 0..num_faces {
+            if suppressed[i] {
                 continue;
             }
-            keep.push(faces[i].clone());
+            for j in (i + 1)..num_faces {
+                if suppressed[j] {
+                    continue;
+                }
 
-            for j in (i + 1)..faces.len() {
-                if active[j]
-                    && Self::calculate_iou(&faces[i].bbox, &faces[j].bbox)
-                        > self.config.iou_threshold
-                {
-                    active[j] = false;
+                if Self::calculate_iou(&faces[i].bbox, &faces[j].bbox) > iou_threshold {
+                    suppressed[j] = true;
                 }
             }
         }
-        keep
+        let mut idx = 0;
+        faces.retain(|_| {
+            let keep = !suppressed[idx];
+            idx += 1;
+            keep
+        });
+
+        faces
     }
 
     fn calculate_iou(a: &BBox, b: &BBox) -> f32 {
@@ -276,11 +306,16 @@ impl ScrfdDetector {
         let y1 = a.y1.max(b.y1);
         let x2 = a.x2.min(b.x2);
         let y2 = a.y2.min(b.y2);
-
-        let intersection = (x2 - x1).max(0.0) * (y2 - y1).max(0.0);
-        if intersection <= 0.0 {
+        let intersection_width = (x2 - x1).max(0.0);
+        let intersection_height = (y2 - y1).max(0.0);
+        let intersection_area = intersection_width * intersection_height;
+        if intersection_area <= 0.0 {
             return 0.0;
         }
-        intersection / (a.area() + b.area() - intersection)
+        let union_area = a.area() + b.area() - intersection_area;
+        if union_area <= 0.0 {
+            return 0.0;
+        }
+        intersection_area / union_area
     }
 }

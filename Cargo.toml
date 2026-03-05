@@ -13,6 +13,8 @@ serde_json = { version = "1.0.149", optional = true }
 
 [dev-dependencies]
 color-eyre = "0.6.5"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.149" }
 
 [features]
 default = ["serde"]

@@ -12,4 +12,6 @@ pub enum DetectorError {
     NdArray(#[from] ndarray::ShapeError),
     #[error("Image Decoding Error")]
     Decode,
+    #[error("Invalid Model: {0}")]
+    InvalidModel(String),
 }
