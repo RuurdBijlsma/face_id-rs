@@ -4,4 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-face = { git = "https://git.ins.jku.at/proj/digidow/face-lib.git", version = "0.2.1" }
+ort = { version = "2.0.0-rc.11", features = ["ndarray", "load-dynamic"] }
+opencv-binding-generator = "0.100.0"
+opencv = "0.98.1"
+ndarray = "0.17.2"
+uuid = "1.20.0"
+anyhow = "1.0.101"
+ndarray-stats = "0.7.0"
+tokio = { version = "1.0", features = ["full"], optional = true }
+log = "0.4"
