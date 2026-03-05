@@ -3,17 +3,20 @@ use ndarray::{Array2, Array4, ArrayD, Ix2, s};
 use opencv::core::{Mat, MatTraitConst, MatTraitConstManual};
 use opencv::{core, dnn, imgproc};
 use ort::{session::Session, value::Value};
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Face {
     pub bbox: BBox,
     pub landmarks: Option<Vec<(f32, f32)>>,
     pub score: f32,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BBox {
     pub x1: f32,
     pub y1: f32,
@@ -36,7 +39,8 @@ impl BBox {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DetectorConfig {
     pub input_size: (i32, i32),
     pub score_threshold: f32,
@@ -53,7 +57,8 @@ impl Default for DetectorConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct PreprocessParams {
     ratio: f32,
     x_offset: i32,
