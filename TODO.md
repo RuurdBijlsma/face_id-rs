@@ -1,4 +1,5 @@
 # TODO
 
 * Face embedding
-* get images to commit to git
+* execution provider doorgeven
+* bon builder gebruiken
