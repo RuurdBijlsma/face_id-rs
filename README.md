@@ -2,4 +2,4 @@
 
 Face detection & recognition crate.
 
-![img.png](img.png)
+![img.png](.github/readme-img.png)
