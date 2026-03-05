@@ -44,3 +44,7 @@ armnn = ["ort/armnn"]
 vitis = ["ort/vitis"]
 rknpu = ["ort/rknpu"]
 azure = ["ort/azure"]
+
+[[bench]]
+name = "face_detection"
+harness = false

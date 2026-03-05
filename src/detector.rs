@@ -52,18 +52,18 @@ impl Default for DetectorConfig {
 }
 
 #[derive(Debug, Clone)]
-struct PreprocessParams {
+pub struct PreprocessParams {
     ratio: f32,
     x_offset: f32,
     y_offset: f32,
 }
 
 pub struct ScrfdDetector {
-    session: Session,
-    config: DetectorConfig,
-    anchors: Vec<Array2<f32>>,
-    strides: Vec<i32>,
-    input_name: String,
+    pub session: Session,
+    pub config: DetectorConfig,
+    pub anchors: Vec<Array2<f32>>,
+    pub strides: Vec<i32>,
+    pub input_name: String,
 }
 
 impl ScrfdDetector {
@@ -134,7 +134,7 @@ impl ScrfdDetector {
         anchors
     }
 
-    fn preprocess(&self, img: &DynamicImage) -> (ImageBuffer<Rgb<u8>, Vec<u8>>, PreprocessParams) {
+    pub fn preprocess(&self, img: &DynamicImage) -> (ImageBuffer<Rgb<u8>, Vec<u8>>, PreprocessParams) {
         let (w_in, h_in) = self.config.input_size;
         let (w_orig, h_orig) = img.dimensions();
 
@@ -153,7 +153,7 @@ impl ScrfdDetector {
         (padded, PreprocessParams { ratio, x_offset, y_offset })
     }
 
-    fn create_input_tensor(&self, img: &ImageBuffer<Rgb<u8>, Vec<u8>>) -> Result<Array4<f32>, DetectorError> {
+    pub fn create_input_tensor(&self, img: &ImageBuffer<Rgb<u8>, Vec<u8>>) -> Result<Array4<f32>, DetectorError> {
         let (width, height) = img.dimensions();
 
         // Convert ImageBuffer to ndarray (H, W, C)
@@ -171,7 +171,7 @@ impl ScrfdDetector {
         Ok(array.insert_axis(Axis(0)))
     }
 
-    fn postprocess(
+    pub fn postprocess(
         outputs: &SessionOutputs,
         params: &PreprocessParams,
         strides: &[i32],
@@ -222,8 +222,11 @@ impl ScrfdDetector {
     }
 
     fn apply_nms(mut faces: Vec<Face>, iou_threshold: f32) -> Vec<Face> {
-        faces.sort_unstable_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
-        let mut suppressed = vec![false; faces.len()];
+        faces.sort_unstable_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });        let mut suppressed = vec![false; faces.len()];
         for i in 0..faces.len() {
             if suppressed[i] { continue; }
             for j in (i + 1)..faces.len() {
