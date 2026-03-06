@@ -55,7 +55,7 @@ pub struct OutputMap {
     pub stride: i32,
     pub score_name: String,
     pub bbox_name: String,
-    pub kps_name: String,
+    pub kps_name: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -108,11 +108,13 @@ impl ScrfdDetector {
             strides.sort_unstable();
 
             for stride in strides {
+                let kps_name = format!("kps_{stride}");
+                let has_kps = session.outputs().iter().any(|o| o.name() == kps_name);
                 output_maps.push(OutputMap {
                     stride,
                     score_name: format!("score_{stride}"),
                     bbox_name: format!("bbox_{stride}"),
-                    kps_name: format!("kps_{stride}"),
+                    kps_name: if has_kps { Some(kps_name) } else { None },
                 });
             }
         } else {
@@ -146,12 +148,16 @@ impl ScrfdDetector {
             let mut current_stride = 8;
             for n in n_keys {
                 let entry = &groups[&n];
-                if !entry.0.is_empty() && !entry.1.is_empty() && !entry.2.is_empty() {
+                if !entry.0.is_empty() && !entry.1.is_empty() {
                     output_maps.push(OutputMap {
                         stride: current_stride,
                         score_name: entry.0.clone(),
                         bbox_name: entry.1.clone(),
-                        kps_name: entry.2.clone(),
+                        kps_name: if entry.2.is_empty() {
+                            None
+                        } else {
+                            Some(entry.2.clone())
+                        },
                     });
                     current_stride *= 2;
                 }
@@ -310,7 +316,11 @@ impl ScrfdDetector {
         for (idx, map) in output_maps.iter().enumerate() {
             let scores = Self::extract_and_reshape(outputs, &map.score_name)?;
             let bboxes = Self::extract_and_reshape(outputs, &map.bbox_name)?;
-            let kps = Self::extract_and_reshape(outputs, &map.kps_name)?;
+            let kps = if let Some(ref kps_name) = map.kps_name {
+                Some(Self::extract_and_reshape(outputs, kps_name)?)
+            } else {
+                None
+            };
 
             let anchors = &anchors_list[idx];
             let stride_f = map.stride as f32;
@@ -331,19 +341,24 @@ impl ScrfdDetector {
                 let x2 = (dist[2].mul_add(stride_f, anchor_x) - params.x_offset) / params.ratio;
                 let y2 = (dist[3].mul_add(stride_f, anchor_y) - params.y_offset) / params.ratio;
 
-                let kps_dist = kps.slice(s![i, ..]);
-                let mut landmarks = Vec::with_capacity(5);
-                for j in 0..5 {
-                    let lx = (kps_dist[j * 2].mul_add(stride_f, anchor_x) - params.x_offset)
-                        / params.ratio;
-                    let ly = (kps_dist[j * 2 + 1].mul_add(stride_f, anchor_y) - params.y_offset)
-                        / params.ratio;
-                    landmarks.push((lx, ly));
+                let mut landmarks = None;
+                if let Some(ref kps_tensor) = kps {
+                    let kps_dist = kps_tensor.slice(s![i, ..]);
+                    let mut lms = Vec::with_capacity(5);
+                    for j in 0..5 {
+                        let lx = (kps_dist[j * 2].mul_add(stride_f, anchor_x) - params.x_offset)
+                            / params.ratio;
+                        let ly = (kps_dist[j * 2 + 1].mul_add(stride_f, anchor_y)
+                            - params.y_offset)
+                            / params.ratio;
+                        lms.push((lx, ly));
+                    }
+                    landmarks = Some(lms);
                 }
 
                 candidate_faces.push(Face {
                     bbox: BBox { x1, y1, x2, y2 },
-                    landmarks: Some(landmarks),
+                    landmarks,
                     score,
                 });
             }
