@@ -96,9 +96,38 @@ impl ScrfdDetector {
             return Err(DetectorError::InvalidModel("No stride info found".into()));
         }
 
+        // Dynamically determine how many anchors per location are in this model
+        let first_stride = strides[0];
+        let score_name = format!("score_{first_stride}");
+        let score_output = session
+            .outputs()
+            .iter()
+            .find(|o| o.name() == score_name)
+            .ok_or_else(|| DetectorError::InvalidModel(format!("Missing output: {score_name}")))?;
+
+        let num_anchors = if let Some(shape) = score_output.dtype().tensor_shape() {
+            let h = (config.input_size.1 / first_stride as u32) as i64;
+            let w = (config.input_size.0 / first_stride as u32) as i64;
+
+            // Handle [batch, anchors, 1] or [anchors, 1]
+            let total_anchors = if shape.len() > 1 {
+                shape.iter().rev().nth(1).copied().unwrap_or(0)
+            } else {
+                shape.iter().next().copied().unwrap_or(0)
+            };
+
+            if h * w == 0 {
+                2
+            } else {
+                (total_anchors / (h * w)) as usize
+            }
+        } else {
+            2
+        };
+
         let anchors = strides
             .iter()
-            .map(|&s| Self::generate_anchors(config.input_size, s))
+            .map(|&s| Self::generate_anchors(config.input_size, s, num_anchors))
             .collect();
 
         Ok(Self {
@@ -126,20 +155,20 @@ impl ScrfdDetector {
         )
     }
 
-    fn generate_anchors(input_size: (u32, u32), stride: i32) -> Array2<f32> {
+    fn generate_anchors(input_size: (u32, u32), stride: i32, num_anchors: usize) -> Array2<f32> {
         let h = (input_size.1 / stride as u32) as usize;
         let w = (input_size.0 / stride as u32) as usize;
-        let mut anchors = Array2::zeros((h * w * 2, 2));
+        let mut anchors = Array2::zeros((h * w * num_anchors, 2));
 
         for y in 0..h {
             for x in 0..w {
-                let idx = (y * w + x) * 2;
+                let base_idx = (y * w + x) * num_anchors;
                 let val_x = x as f32 * stride as f32;
                 let val_y = y as f32 * stride as f32;
-                anchors[[idx, 0]] = val_x;
-                anchors[[idx, 1]] = val_y;
-                anchors[[idx + 1, 0]] = val_x;
-                anchors[[idx + 1, 1]] = val_y;
+                for i in 0..num_anchors {
+                    anchors[[base_idx + i, 0]] = val_x;
+                    anchors[[base_idx + i, 1]] = val_y;
+                }
             }
         }
         anchors
@@ -218,15 +247,9 @@ impl ScrfdDetector {
             let bbox_key = format!("bbox_{stride}");
             let kps_key = format!("kps_{stride}");
 
-            let scores = outputs[score_key.as_str()]
-                .try_extract_array::<f32>()?
-                .into_dimensionality::<Ix2>()?;
-            let bboxes = outputs[bbox_key.as_str()]
-                .try_extract_array::<f32>()?
-                .into_dimensionality::<Ix2>()?;
-            let kps = outputs[kps_key.as_str()]
-                .try_extract_array::<f32>()?
-                .into_dimensionality::<Ix2>()?;
+            let scores = Self::extract_and_reshape(outputs, &score_key)?;
+            let bboxes = Self::extract_and_reshape(outputs, &bbox_key)?;
+            let kps = Self::extract_and_reshape(outputs, &kps_key)?;
 
             let anchors = &anchors_list[idx];
 
@@ -265,10 +288,13 @@ impl ScrfdDetector {
                 });
             }
         }
-        Ok(Self::apply_nms(candidate_faces, config.iou_threshold))
+        Ok(Self::perform_non_maximum_suppression(
+            candidate_faces,
+            config.iou_threshold,
+        ))
     }
 
-    fn apply_nms(mut faces: Vec<Face>, iou_threshold: f32) -> Vec<Face> {
+    fn perform_non_maximum_suppression(mut faces: Vec<Face>, iou_threshold: f32) -> Vec<Face> {
         faces.sort_unstable_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
@@ -283,7 +309,9 @@ impl ScrfdDetector {
                 if suppressed[j] {
                     continue;
                 }
-                if Self::calculate_iou(&faces[i].bbox, &faces[j].bbox) > iou_threshold {
+                if Self::compute_intersection_over_union(&faces[i].bbox, &faces[j].bbox)
+                    > iou_threshold
+                {
                     suppressed[j] = true;
                 }
             }
@@ -297,7 +325,23 @@ impl ScrfdDetector {
         faces
     }
 
-    fn calculate_iou(a: &BBox, b: &BBox) -> f32 {
+    fn extract_and_reshape(
+        outputs: &SessionOutputs,
+        key: &str,
+    ) -> Result<Array2<f32>, DetectorError> {
+        let array = outputs[key].try_extract_array::<f32>()?;
+        if array.ndim() == 3 && array.shape()[0] == 1 {
+            Ok(array
+                .view()
+                .to_shape((array.shape()[1], array.shape()[2]))?
+                .to_owned()
+                .into_dimensionality::<Ix2>()?)
+        } else {
+            Ok(array.to_owned().into_dimensionality::<Ix2>()?)
+        }
+    }
+
+    fn compute_intersection_over_union(a: &BBox, b: &BBox) -> f32 {
         let x1 = a.x1.max(b.x1);
         let y1 = a.y1.max(b.y1);
         let x2 = a.x2.min(b.x2);
