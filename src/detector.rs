@@ -2,6 +2,7 @@ use crate::error::DetectorError;
 use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use ndarray::{Array2, Array4, Ix2, s};
+use ort::ep::ExecutionProviderDispatch;
 use ort::{
     session::{Session, SessionOutputs},
     value::Value,
@@ -30,12 +31,12 @@ impl BBox {
     pub fn width(&self) -> f32 {
         self.x2 - self.x1
     }
-    
+
     #[must_use]
     pub fn height(&self) -> f32 {
         self.y2 - self.y1
     }
-    
+
     #[must_use]
     pub fn area(&self) -> f32 {
         self.width() * self.height()
@@ -80,8 +81,11 @@ impl ScrfdDetector {
         #[builder(default = (640, 640))] input_size: (u32, u32),
         #[builder(default = 0.5)] score_threshold: f32,
         #[builder(default = 0.4)] iou_threshold: f32,
+        #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
     ) -> Result<Self, DetectorError> {
-        let session = Session::builder()?.commit_from_file(model_path)?;
+        let session = Session::builder()?
+            .with_execution_providers(with_execution_providers)?
+            .commit_from_file(model_path)?;
         let input_name = session.inputs()[0].name().to_string();
         let config = DetectorConfig {
             input_size,
@@ -90,8 +94,11 @@ impl ScrfdDetector {
         };
 
         let mut output_maps = Vec::new();
-        let has_named = session.outputs().iter().any(|o| o.name().starts_with("score_"));
-        
+        let has_named = session
+            .outputs()
+            .iter()
+            .any(|o| o.name().starts_with("score_"));
+
         if has_named {
             let mut strides: Vec<i32> = session
                 .outputs()
@@ -99,7 +106,7 @@ impl ScrfdDetector {
                 .filter_map(|output| output.name().strip_prefix("score_")?.parse::<i32>().ok())
                 .collect();
             strides.sort_unstable();
-            
+
             for stride in strides {
                 output_maps.push(OutputMap {
                     stride,
@@ -109,12 +116,20 @@ impl ScrfdDetector {
                 });
             }
         } else {
-            let mut groups: std::collections::HashMap<i64, (String, String, String)> = std::collections::HashMap::new();
+            let mut groups: std::collections::HashMap<i64, (String, String, String)> =
+                std::collections::HashMap::new();
             for out in session.outputs().iter() {
                 if let Some(shape) = out.dtype().tensor_shape() {
-                    let n = if shape.len() > 1 { shape[shape.len() - 2] } else { continue };
+                    let n = if shape.len() > 1 {
+                        shape[shape.len() - 2]
+                    } else {
+                        continue;
+                    };
                     let last = shape[shape.len() - 1];
-                    let entry = groups.entry(n).or_insert(("".to_string(), "".to_string(), "".to_string()));
+                    let entry =
+                        groups
+                            .entry(n)
+                            .or_insert(("".to_string(), "".to_string(), "".to_string()));
                     if last == 1 || last == 2 {
                         entry.0 = out.name().to_string();
                     } else if last == 4 {
@@ -124,10 +139,10 @@ impl ScrfdDetector {
                     }
                 }
             }
-            
+
             let mut n_keys: Vec<i64> = groups.keys().copied().filter(|&k| k > 0).collect();
             n_keys.sort_unstable_by(|a, b| b.cmp(a));
-            
+
             let mut current_stride = 8;
             for n in n_keys {
                 let entry = &groups[&n];
@@ -152,7 +167,9 @@ impl ScrfdDetector {
             .outputs()
             .iter()
             .find(|o| o.name() == first_map.score_name)
-            .ok_or_else(|| DetectorError::InvalidModel(format!("Missing output: {}", first_map.score_name)))?;
+            .ok_or_else(|| {
+                DetectorError::InvalidModel(format!("Missing output: {}", first_map.score_name))
+            })?;
 
         let num_anchors = if let Some(shape) = score_output.dtype().tensor_shape() {
             let h = (config.input_size.1 / first_map.stride as u32) as i64;
@@ -263,8 +280,9 @@ impl ScrfdDetector {
         let raw = img.as_raw();
 
         let mut array = Array4::<f32>::zeros((1, 3, h, w));
-        
-        let (r_plane, rest) = array.as_slice_memory_order_mut()
+
+        let (r_plane, rest) = array
+            .as_slice_memory_order_mut()
             .expect("Array was just created contiguously")
             .split_at_mut(h * w);
         let (g_plane, b_plane) = rest.split_at_mut(h * w);
@@ -380,12 +398,12 @@ impl ScrfdDetector {
         let y1 = a.y1.max(b.y1);
         let x2 = a.x2.min(b.x2);
         let y2 = a.y2.min(b.y2);
-        
+
         let intersection = (x2 - x1).max(0.0) * (y2 - y1).max(0.0);
         if intersection <= 0.0 {
             return 0.0;
         }
-        
+
         intersection / (a.area() + b.area() - intersection)
     }
 }
