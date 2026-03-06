@@ -68,7 +68,7 @@ fn bench_pipeline_steps(c: &mut Criterion) {
             let _ = ScrfdDetector::postprocess(
                 black_box(&outputs),
                 black_box(&params),
-                black_box(&detector.strides),
+                black_box(&detector.output_maps),
                 black_box(&detector.anchors),
                 black_box(&detector.config),
             ).unwrap();

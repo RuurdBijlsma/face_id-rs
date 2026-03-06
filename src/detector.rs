@@ -50,6 +50,14 @@ pub struct PreprocessParams {
 }
 
 #[derive(Debug, Clone)]
+pub struct OutputMap {
+    pub stride: i32,
+    pub score_name: String,
+    pub bbox_name: String,
+    pub kps_name: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct DetectorConfig {
     pub input_size: (u32, u32),
     pub score_threshold: f32,
@@ -60,7 +68,7 @@ pub struct ScrfdDetector {
     pub session: Session,
     pub config: DetectorConfig,
     pub anchors: Vec<Array2<f32>>,
-    pub strides: Vec<i32>,
+    pub output_maps: Vec<OutputMap>,
     pub input_name: String,
 }
 
@@ -74,7 +82,6 @@ impl ScrfdDetector {
         #[builder(default = 0.4)] iou_threshold: f32,
     ) -> Result<Self, DetectorError> {
         let session = Session::builder()?.commit_from_file(model_path)?;
-        dbg!(&session);
         let input_name = session.inputs()[0].name().to_string();
         let config = DetectorConfig {
             input_size,
@@ -82,32 +89,75 @@ impl ScrfdDetector {
             iou_threshold,
         };
 
-        let mut strides: Vec<i32> = session
-            .outputs()
-            .iter()
-            .filter_map(|output| output.name().strip_prefix("score_")?.parse::<i32>().ok())
-            .collect();
+        let mut output_maps = Vec::new();
+        let has_named = session.outputs().iter().any(|o| o.name().starts_with("score_"));
+        
+        if has_named {
+            let mut strides: Vec<i32> = session
+                .outputs()
+                .iter()
+                .filter_map(|output| output.name().strip_prefix("score_")?.parse::<i32>().ok())
+                .collect();
+            strides.sort_unstable();
             
-        strides.sort_unstable();
+            for stride in strides {
+                output_maps.push(OutputMap {
+                    stride,
+                    score_name: format!("score_{stride}"),
+                    bbox_name: format!("bbox_{stride}"),
+                    kps_name: format!("kps_{stride}"),
+                });
+            }
+        } else {
+            let mut groups: std::collections::HashMap<i64, (String, String, String)> = std::collections::HashMap::new();
+            for out in session.outputs().iter() {
+                if let Some(shape) = out.dtype().tensor_shape() {
+                    let n = if shape.len() > 1 { shape[shape.len() - 2] } else { continue };
+                    let last = shape[shape.len() - 1];
+                    let entry = groups.entry(n).or_insert(("".to_string(), "".to_string(), "".to_string()));
+                    if last == 1 || last == 2 {
+                        entry.0 = out.name().to_string();
+                    } else if last == 4 {
+                        entry.1 = out.name().to_string();
+                    } else if last == 10 || last == 15 {
+                        entry.2 = out.name().to_string();
+                    }
+                }
+            }
+            
+            let mut n_keys: Vec<i64> = groups.keys().copied().filter(|&k| k > 0).collect();
+            n_keys.sort_unstable_by(|a, b| b.cmp(a));
+            
+            let mut current_stride = 8;
+            for n in n_keys {
+                let entry = &groups[&n];
+                if !entry.0.is_empty() && !entry.1.is_empty() && !entry.2.is_empty() {
+                    output_maps.push(OutputMap {
+                        stride: current_stride,
+                        score_name: entry.0.clone(),
+                        bbox_name: entry.1.clone(),
+                        kps_name: entry.2.clone(),
+                    });
+                    current_stride *= 2;
+                }
+            }
+        }
 
-        if strides.is_empty() {
+        if output_maps.is_empty() {
             return Err(DetectorError::InvalidModel("No stride info found".into()));
         }
 
-        // Dynamically determine how many anchors per location are in this model
-        let first_stride = strides[0];
-        let score_name = format!("score_{first_stride}");
+        let first_map = &output_maps[0];
         let score_output = session
             .outputs()
             .iter()
-            .find(|o| o.name() == score_name)
-            .ok_or_else(|| DetectorError::InvalidModel(format!("Missing output: {score_name}")))?;
+            .find(|o| o.name() == first_map.score_name)
+            .ok_or_else(|| DetectorError::InvalidModel(format!("Missing output: {}", first_map.score_name)))?;
 
         let num_anchors = if let Some(shape) = score_output.dtype().tensor_shape() {
-            let h = (config.input_size.1 / first_stride as u32) as i64;
-            let w = (config.input_size.0 / first_stride as u32) as i64;
+            let h = (config.input_size.1 / first_map.stride as u32) as i64;
+            let w = (config.input_size.0 / first_map.stride as u32) as i64;
 
-            // Handle [batch, anchors, 1] or [anchors, 1]
             let total_anchors = if shape.len() > 1 {
                 shape.iter().rev().nth(1).copied().unwrap_or(0)
             } else {
@@ -116,23 +166,25 @@ impl ScrfdDetector {
 
             if h * w == 0 {
                 2
-            } else {
+            } else if total_anchors > 0 && total_anchors % (h * w) == 0 {
                 (total_anchors / (h * w)) as usize
+            } else {
+                2
             }
         } else {
             2
         };
 
-        let anchors = strides
+        let anchors = output_maps
             .iter()
-            .map(|&s| Self::generate_anchors(config.input_size, s, num_anchors))
+            .map(|m| Self::generate_anchors(config.input_size, m.stride, num_anchors))
             .collect();
 
         Ok(Self {
             session,
             config,
             anchors,
-            strides,
+            output_maps,
             input_name,
         })
     }
@@ -147,7 +199,7 @@ impl ScrfdDetector {
         Self::postprocess(
             &outputs,
             &params,
-            &self.strides,
+            &self.output_maps,
             &self.anchors,
             &self.config,
         )
@@ -231,23 +283,19 @@ impl ScrfdDetector {
     pub fn postprocess(
         outputs: &SessionOutputs,
         params: &PreprocessParams,
-        strides: &[i32],
+        output_maps: &[OutputMap],
         anchors_list: &[Array2<f32>],
         config: &DetectorConfig,
     ) -> Result<Vec<Face>, DetectorError> {
         let mut candidate_faces = Vec::new();
 
-        for (idx, &stride) in strides.iter().enumerate() {
-            let score_key = format!("score_{stride}");
-            let bbox_key = format!("bbox_{stride}");
-            let kps_key = format!("kps_{stride}");
-
-            let scores = Self::extract_and_reshape(outputs, &score_key)?;
-            let bboxes = Self::extract_and_reshape(outputs, &bbox_key)?;
-            let kps = Self::extract_and_reshape(outputs, &kps_key)?;
+        for (idx, map) in output_maps.iter().enumerate() {
+            let scores = Self::extract_and_reshape(outputs, &map.score_name)?;
+            let bboxes = Self::extract_and_reshape(outputs, &map.bbox_name)?;
+            let kps = Self::extract_and_reshape(outputs, &map.kps_name)?;
 
             let anchors = &anchors_list[idx];
-            let stride_f = stride as f32;
+            let stride_f = map.stride as f32;
 
             for i in 0..scores.nrows() {
                 let score = scores[[i, 0]];
