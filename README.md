@@ -11,14 +11,14 @@ This crate uses SCRDF face detection models. The following models are available:
 > The naming convention for the ONNX models indicates the computational complexity (measured in FLOPs) and whether the
 > model includes 5 facial keypoints predictions in addition to standard bounding boxes.
 
-| Model Name            | Complexity        | Bounding Boxes | 5 Facial Keypoints | Output                     |
-|:----------------------|:------------------|:--------------:|:------------------:|:---------------------------|
-| **`500m.onnx`**       | 500 Million FLOPs |       ✅        |         ❌          | Bounding boxes             |
-| **`1g.onnx`**         | 1 Giga FLOPs      |       ✅        |         ❌          | Bounding boxes             |
-| **`2.5g_bnkps.onnx`** | 2.5 Giga FLOPs    |       ✅        |         ✅          | Bounding boxes + Keypoints |
-| **`10g_bnkps.onnx`**  | 10 Giga FLOPs     |       ✅        |         ✅          | Bounding boxes + Keypoints |
-| **`34g.onnx`**        | 34 Giga FLOPs     |       ✅        |         ❌          | Bounding boxes             |
-| **`34g_gnkps.onnx`**  | 34 Giga FLOPs     |       ✅        |         ❌          | Bounding boxes + Keypoints |
+| Model Name            | Complexity        | Bounding Boxes | 5 Facial Keypoints |
+|:----------------------|:------------------|:--------------:|:------------------:|
+| **`500m.onnx`**       | 500 Million FLOPs |       ✅        |         ❌          |
+| **`1g.onnx`**         | 1 Giga FLOPs      |       ✅        |         ❌          |
+| **`2.5g_bnkps.onnx`** | 2.5 Giga FLOPs    |       ✅        |         ✅          |
+| **`10g_bnkps.onnx`**  | 10 Giga FLOPs     |       ✅        |         ✅          |
+| **`34g.onnx`**        | 34 Giga FLOPs     |       ✅        |         ❌          |
+| **`34g_gnkps.onnx`**  | 34 Giga FLOPs     |       ✅        |         ❌          |
 
 ### Keypoints (`kps`) and Normalization Types (`bn` vs `gn`)
 
