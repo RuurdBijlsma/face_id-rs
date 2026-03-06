@@ -1,5 +1,5 @@
 use color_eyre::eyre::Result;
-use face_id::detector::{DetectorConfig, ScrfdDetector};
+use face_id::detector::ScrfdDetector;
 use image::{Rgb, RgbImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_hollow_rect_mut};
 use imageproc::rect::Rect;
@@ -19,7 +19,7 @@ fn main() -> Result<()> {
     }
 
     // Initialize detector
-    let mut detector = ScrfdDetector::new(model_path, DetectorConfig::default())?;
+    let mut detector = ScrfdDetector::builder(model_path).build()?;
 
     // Iterate over files in the image directory
     for entry in fs::read_dir(img_dir)? {

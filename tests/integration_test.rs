@@ -1,4 +1,4 @@
-use face_id::detector::{DetectorConfig, Face, ScrfdDetector};
+use face_id::detector::{Face, ScrfdDetector};
 use serde::Deserialize;
 use std::fs::File;
 use std::path::Path;
@@ -24,7 +24,8 @@ fn test_regression_against_json() -> Result<(), Box<dyn std::error::Error>> {
 
     let file = File::open(json_path)?;
     let expected_results: Vec<ImageTestResult> = serde_json::from_reader(file)?;
-    let mut detector = ScrfdDetector::new(model_path, DetectorConfig::default())?;
+    let mut detector = ScrfdDetector::builder(model_path)
+        .build()?;
 
     for expected in expected_results {
         let img_path = Path::new(img_dir).join(&expected.filename);

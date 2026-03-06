@@ -1,5 +1,5 @@
 use color_eyre::eyre::Result;
-use face_id::detector::{DetectorConfig, Face, ScrfdDetector};
+use face_id::detector::{Face, ScrfdDetector};
 use serde::Serialize;
 use std::fs::{self, File};
 use std::path::Path;
@@ -22,7 +22,7 @@ fn main() -> Result<()> {
         fs::create_dir_all(parent)?;
     }
 
-    let mut detector = ScrfdDetector::new(model_path, DetectorConfig::default())?;
+    let mut detector = ScrfdDetector::builder(model_path).build()?;
     let mut all_results = Vec::new();
 
     let entries = fs::read_dir(img_dir)?;

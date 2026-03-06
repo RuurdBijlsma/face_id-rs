@@ -1,6 +1,7 @@
 use crate::error::DetectorError;
+use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
-use ndarray::{Array4, Axis, Ix2, s, Array2};
+use ndarray::{Array2, Array4, Axis, Ix2, s};
 use ort::{
     session::{Session, SessionOutputs},
     value::Value,
@@ -26,28 +27,16 @@ pub struct BBox {
 
 impl BBox {
     #[must_use]
-    pub fn width(&self) -> f32 { self.x2 - self.x1 }
+    pub fn width(&self) -> f32 {
+        self.x2 - self.x1
+    }
     #[must_use]
-    pub fn height(&self) -> f32 { self.y2 - self.y1 }
+    pub fn height(&self) -> f32 {
+        self.y2 - self.y1
+    }
     #[must_use]
-    pub fn area(&self) -> f32 { self.width() * self.height() }
-}
-
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct DetectorConfig {
-    pub input_size: (u32, u32),
-    pub score_threshold: f32,
-    pub iou_threshold: f32,
-}
-
-impl Default for DetectorConfig {
-    fn default() -> Self {
-        Self {
-            input_size: (640, 640),
-            score_threshold: 0.5,
-            iou_threshold: 0.4,
-        }
+    pub fn area(&self) -> f32 {
+        self.width() * self.height()
     }
 }
 
@@ -58,6 +47,13 @@ pub struct PreprocessParams {
     y_offset: f32,
 }
 
+#[derive(Debug, Clone)]
+pub struct DetectorConfig {
+    pub input_size: (u32, u32),
+    pub score_threshold: f32,
+    pub iou_threshold: f32,
+}
+
 pub struct ScrfdDetector {
     pub session: Session,
     pub config: DetectorConfig,
@@ -66,13 +62,22 @@ pub struct ScrfdDetector {
     pub input_name: String,
 }
 
+#[bon]
 impl ScrfdDetector {
+    #[builder]
     pub fn new(
-        model_path: impl AsRef<Path>,
-        config: DetectorConfig,
+        #[builder(start_fn)] model_path: impl AsRef<Path>,
+        #[builder(default = (640, 640))] input_size: (u32, u32),
+        #[builder(default = 0.5)] score_threshold: f32,
+        #[builder(default = 0.4)] iou_threshold: f32,
     ) -> Result<Self, DetectorError> {
         let session = Session::builder()?.commit_from_file(model_path)?;
         let input_name = session.inputs()[0].name().to_string();
+        let config = DetectorConfig {
+            input_size,
+            score_threshold,
+            iou_threshold,
+        };
 
         let mut strides: Vec<i32> = session
             .outputs()
@@ -96,7 +101,13 @@ impl ScrfdDetector {
             .map(|&s| Self::generate_anchors(config.input_size, s))
             .collect();
 
-        Ok(Self { session, config, anchors, strides, input_name })
+        Ok(Self {
+            session,
+            config,
+            anchors,
+            strides,
+            input_name,
+        })
     }
 
     pub fn detect(&mut self, img: &DynamicImage) -> Result<Vec<Face>, DetectorError> {
@@ -135,7 +146,10 @@ impl ScrfdDetector {
     }
 
     #[must_use]
-    pub fn preprocess(&self, img: &DynamicImage) -> (ImageBuffer<Rgb<u8>, Vec<u8>>, PreprocessParams) {
+    pub fn preprocess(
+        &self,
+        img: &DynamicImage,
+    ) -> (ImageBuffer<Rgb<u8>, Vec<u8>>, PreprocessParams) {
         let (w_in, h_in) = self.config.input_size;
         let (w_orig, h_orig) = img.dimensions();
 
@@ -149,25 +163,43 @@ impl ScrfdDetector {
         let x_offset = (w_in - w_new) as f32 / 2.0;
         let y_offset = (h_in - h_new) as f32 / 2.0;
 
-        image::imageops::overlay(&mut padded, &resized.to_rgb8(), x_offset as i64, y_offset as i64);
+        image::imageops::overlay(
+            &mut padded,
+            &resized.to_rgb8(),
+            x_offset as i64,
+            y_offset as i64,
+        );
 
-        (padded, PreprocessParams { ratio, x_offset, y_offset })
+        (
+            padded,
+            PreprocessParams {
+                ratio,
+                x_offset,
+                y_offset,
+            },
+        )
     }
 
-    pub fn create_input_tensor(&self, img: &ImageBuffer<Rgb<u8>, Vec<u8>>) -> Result<Array4<f32>, DetectorError> {
+    pub fn create_input_tensor(
+        &self,
+        img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
+    ) -> Result<Array4<f32>, DetectorError> {
         let (width, height) = img.dimensions();
 
-        // Convert ImageBuffer to ndarray (H, W, C)
-        let mut array = ndarray::Array3::zeros((height as usize, width as usize, 3));
-        for (x, y, pixel) in img.enumerate_pixels() {
-            let rgb = pixel.0;
-            array[[y as usize, x as usize, 0]] = (f32::from(rgb[0]) - 127.5) / 128.0;
-            array[[y as usize, x as usize, 1]] = (f32::from(rgb[1]) - 127.5) / 128.0;
-            array[[y as usize, x as usize, 2]] = (f32::from(rgb[2]) - 127.5) / 128.0;
-        }
+        // Convert raw buffer directly to ndarray and normalize
+        let raw = img.as_raw();
+        let array =
+            ndarray::Array3::from_shape_vec((height as usize, width as usize, 3), raw.clone())
+                .map_err(|e| {
+                    DetectorError::InvalidModel(format!("Failed to create array from image: {e}"))
+                })?;
+
+        let mut array = array.mapv(|x| (f32::from(x) - 127.5) / 128.0);
 
         // HWC to CHW
-        let array = array.permuted_axes([2, 0, 1]);
+        array.swap_axes(0, 2);
+        array.swap_axes(1, 2);
+
         // Add batch dimension: NCHW
         Ok(array.insert_axis(Axis(0)))
     }
@@ -186,30 +218,44 @@ impl ScrfdDetector {
             let bbox_key = format!("bbox_{stride}");
             let kps_key = format!("kps_{stride}");
 
-            let scores = outputs[score_key.as_str()].try_extract_array::<f32>()?.into_dimensionality::<Ix2>()?;
-            let bboxes = outputs[bbox_key.as_str()].try_extract_array::<f32>()?.into_dimensionality::<Ix2>()?;
-            let kps = outputs[kps_key.as_str()].try_extract_array::<f32>()?.into_dimensionality::<Ix2>()?;
+            let scores = outputs[score_key.as_str()]
+                .try_extract_array::<f32>()?
+                .into_dimensionality::<Ix2>()?;
+            let bboxes = outputs[bbox_key.as_str()]
+                .try_extract_array::<f32>()?
+                .into_dimensionality::<Ix2>()?;
+            let kps = outputs[kps_key.as_str()]
+                .try_extract_array::<f32>()?
+                .into_dimensionality::<Ix2>()?;
 
             let anchors = &anchors_list[idx];
 
             for i in 0..scores.nrows() {
                 let score = scores[[i, 0]];
-                if score < config.score_threshold { continue; }
+                if score < config.score_threshold {
+                    continue;
+                }
 
                 let dist = bboxes.slice(s![i, ..]);
                 let anchor = anchors.slice(s![i, ..]);
 
-                let x1 = (dist[0].mul_add(-(stride as f32), anchor[0]) - params.x_offset) / params.ratio;
-                let y1 = (dist[1].mul_add(-(stride as f32), anchor[1]) - params.y_offset) / params.ratio;
-                let x2 = (dist[2].mul_add(stride as f32, anchor[0]) - params.x_offset) / params.ratio;
-                let y2 = (dist[3].mul_add(stride as f32, anchor[1]) - params.y_offset) / params.ratio;
+                let x1 =
+                    (dist[0].mul_add(-(stride as f32), anchor[0]) - params.x_offset) / params.ratio;
+                let y1 =
+                    (dist[1].mul_add(-(stride as f32), anchor[1]) - params.y_offset) / params.ratio;
+                let x2 =
+                    (dist[2].mul_add(stride as f32, anchor[0]) - params.x_offset) / params.ratio;
+                let y2 =
+                    (dist[3].mul_add(stride as f32, anchor[1]) - params.y_offset) / params.ratio;
 
                 let kps_dist = kps.slice(s![i, ..]);
                 let mut landmarks = Vec::with_capacity(5);
                 for j in 0..5 {
                     landmarks.push((
-                        (kps_dist[j * 2].mul_add(stride as f32, anchor[0]) - params.x_offset) / params.ratio,
-                        (kps_dist[j * 2 + 1].mul_add(stride as f32, anchor[1]) - params.y_offset) / params.ratio,
+                        (kps_dist[j * 2].mul_add(stride as f32, anchor[0]) - params.x_offset)
+                            / params.ratio,
+                        (kps_dist[j * 2 + 1].mul_add(stride as f32, anchor[1]) - params.y_offset)
+                            / params.ratio,
                     ));
                 }
                 candidate_faces.push(Face {
@@ -227,11 +273,16 @@ impl ScrfdDetector {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
-        });        let mut suppressed = vec![false; faces.len()];
+        });
+        let mut suppressed = vec![false; faces.len()];
         for i in 0..faces.len() {
-            if suppressed[i] { continue; }
+            if suppressed[i] {
+                continue;
+            }
             for j in (i + 1)..faces.len() {
-                if suppressed[j] { continue; }
+                if suppressed[j] {
+                    continue;
+                }
                 if Self::calculate_iou(&faces[i].bbox, &faces[j].bbox) > iou_threshold {
                     suppressed[j] = true;
                 }
@@ -252,7 +303,9 @@ impl ScrfdDetector {
         let x2 = a.x2.min(b.x2);
         let y2 = a.y2.min(b.y2);
         let intersection = (x2 - x1).max(0.0) * (y2 - y1).max(0.0);
-        if intersection <= 0.0 { return 0.0; }
+        if intersection <= 0.0 {
+            return 0.0;
+        }
         intersection / (a.area() + b.area() - intersection)
     }
 }

@@ -10,17 +10,16 @@ const IMG_PATH: &str = "assets/img/da-vinki.jpg";
 fn bench_init(c: &mut Criterion) {
     c.bench_function("0_detector_new", |b| {
         b.iter(|| {
-            let _ = ScrfdDetector::new(
-                black_box(MODEL_PATH),
-                black_box(DetectorConfig::default())
-            ).unwrap();
+            let _ = ScrfdDetector::builder(
+                black_box(MODEL_PATH)
+            ).build().unwrap();
         })
     });
 }
 
 /// Benchmarks the full face detection process
 fn bench_full_detect(c: &mut Criterion) {
-    let mut detector = ScrfdDetector::new(MODEL_PATH, DetectorConfig::default()).unwrap();
+    let mut detector = ScrfdDetector::builder(MODEL_PATH).build().unwrap();
     let img = image::open(IMG_PATH).unwrap();
 
     c.bench_function("full_pipeline_detect", |b| {
@@ -32,7 +31,7 @@ fn bench_full_detect(c: &mut Criterion) {
 
 /// Benchmarks individual components of the pipeline
 fn bench_pipeline_steps(c: &mut Criterion) {
-    let mut detector = ScrfdDetector::new(MODEL_PATH, DetectorConfig::default()).unwrap();
+    let mut detector = ScrfdDetector::builder(MODEL_PATH).build().unwrap();
     let img = image::open(IMG_PATH).unwrap();
     let mut group = c.benchmark_group("pipeline_steps");
 
