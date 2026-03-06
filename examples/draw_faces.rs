@@ -9,7 +9,7 @@ use std::path::Path;
 fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let model_path = "assets/models/34g_gnkps.onnx";
+    let model_path = "assets/models/scrfd_10g_bnkps.onnx";
     let img_dir = "assets/img";
     let output_dir = "output_previews";
 
