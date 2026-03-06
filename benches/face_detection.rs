@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use face_id::detector::ScrfdDetector;
 use ort::value::Value;
 use std::hint::black_box;
@@ -10,9 +10,9 @@ const IMG_PATH: &str = "assets/img/da-vinki.jpg";
 fn bench_init(c: &mut Criterion) {
     c.bench_function("0_detector_new", |b| {
         b.iter(|| {
-            let _ = ScrfdDetector::builder(
-                black_box(MODEL_PATH)
-            ).build().unwrap();
+            let _ = ScrfdDetector::builder(black_box(MODEL_PATH))
+                .build()
+                .unwrap();
         })
     });
 }
@@ -31,7 +31,10 @@ fn bench_full_detect(c: &mut Criterion) {
 
 /// Benchmarks individual components of the pipeline
 fn bench_pipeline_steps(c: &mut Criterion) {
-    let mut detector = ScrfdDetector::builder(MODEL_PATH).build().unwrap();
+    let mut detector = ScrfdDetector::builder(MODEL_PATH)
+        .with_execution_providers(&[ort::ep::CUDA::default().build()])
+        .build()
+        .unwrap();
     let img = image::open(IMG_PATH).unwrap();
     let mut group = c.benchmark_group("pipeline_steps");
 
@@ -51,16 +54,22 @@ fn bench_pipeline_steps(c: &mut Criterion) {
     // 2. Inference (The actual neural network pass)
     group.bench_function("2_inference", |b| {
         b.iter(|| {
-            let _ = detector.session.run(ort::inputs![
-                &*detector.input_name => input_value.clone()
-            ]).unwrap();
+            let _ = detector
+                .session
+                .run(ort::inputs![
+                    &*detector.input_name => input_value.clone()
+                ])
+                .unwrap();
         })
     });
 
     // Setup for Post-processing
-    let outputs = detector.session.run(ort::inputs![
-        &*detector.input_name => input_value.clone()
-    ]).unwrap();
+    let outputs = detector
+        .session
+        .run(ort::inputs![
+            &*detector.input_name => input_value.clone()
+        ])
+        .unwrap();
 
     // 3. Post-processing (BBox decoding + NMS)
     group.bench_function("3_postprocessing", |b| {
@@ -71,17 +80,13 @@ fn bench_pipeline_steps(c: &mut Criterion) {
                 black_box(&detector.output_maps),
                 black_box(&detector.anchors),
                 black_box(&detector.config),
-            ).unwrap();
+            )
+            .unwrap();
         })
     });
 
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_init,
-    bench_full_detect,
-    bench_pipeline_steps
-);
+criterion_group!(benches, bench_init, bench_full_detect, bench_pipeline_steps);
 criterion_main!(benches);

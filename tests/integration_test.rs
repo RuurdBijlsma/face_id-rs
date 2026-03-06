@@ -24,8 +24,7 @@ fn test_regression_against_json() -> Result<(), Box<dyn std::error::Error>> {
 
     let file = File::open(json_path)?;
     let expected_results: Vec<ImageTestResult> = serde_json::from_reader(file)?;
-    let mut detector = ScrfdDetector::builder(model_path)
-        .build()?;
+    let mut detector = ScrfdDetector::builder(model_path).build()?;
 
     for expected in expected_results {
         let img_path = Path::new(img_dir).join(&expected.filename);
@@ -46,7 +45,7 @@ fn test_regression_against_json() -> Result<(), Box<dyn std::error::Error>> {
         for (i, (actual, exp)) in actual_faces.iter().zip(expected_faces.iter()).enumerate() {
             let ctx = format!("{}:{}", expected.filename, i);
             // Compare Score
-            assert_approx_eq(actual.score, exp.score, &format!("{ctx} Score", ));
+            assert_approx_eq(actual.score, exp.score, &format!("{ctx} Score",));
 
             // Compare BBox
             assert_approx_eq(actual.bbox.x1, exp.bbox.x1, &format!("{ctx} BBox x1"));
@@ -64,9 +63,7 @@ fn test_regression_against_json() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 (None, None) => {}
-                _ => panic!(
-                    "{ctx} Landmark presence mismatch (One has landmarks, one doesn't)",
-                ),
+                _ => panic!("{ctx} Landmark presence mismatch (One has landmarks, one doesn't)",),
             }
         }
     }
