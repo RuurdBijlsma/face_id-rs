@@ -74,8 +74,6 @@ impl GenderAgeEstimator {
             .run(ort::inputs![&self.input_name => input_value])?;
 
         let output_tensor = outputs[0].try_extract_array::<f32>()?;
-
-        // Handle output shape [N, 3]
         let batch_size = face_imgs.len();
         let mut results = Vec::with_capacity(batch_size);
 
