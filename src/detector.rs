@@ -1,4 +1,5 @@
-use crate::error::DetectorError;
+use crate::error::FaceIdError;
+use crate::model_manager::get_hf_model;
 use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use ndarray::{Array2, Array4, Ix2, s};
@@ -75,6 +76,24 @@ pub struct ScrfdDetector {
 
 #[bon]
 impl ScrfdDetector {
+    #[builder(finish_fn=build)]
+    pub async fn from_hf(
+        #[builder(start_fn)] model_id: &str,
+        #[builder(start_fn)] model_filename: &str,
+        #[builder(default = (640, 640))] input_size: (u32, u32),
+        #[builder(default = 0.5)] score_threshold: f32,
+        #[builder(default = 0.4)] iou_threshold: f32,
+        #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
+    ) -> Result<Self, FaceIdError> {
+        let model_path = get_hf_model(model_id, model_filename).await?;
+        Self::builder(model_path)
+            .input_size(input_size)
+            .score_threshold(score_threshold)
+            .iou_threshold(iou_threshold)
+            .with_execution_providers(with_execution_providers)
+            .build()
+    }
+
     #[builder]
     pub fn new(
         #[builder(start_fn)] model_path: impl AsRef<Path>,
@@ -82,7 +101,7 @@ impl ScrfdDetector {
         #[builder(default = 0.5)] score_threshold: f32,
         #[builder(default = 0.4)] iou_threshold: f32,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
-    ) -> Result<Self, DetectorError> {
+    ) -> Result<Self, FaceIdError> {
         let session = Session::builder()?
             .with_execution_providers(with_execution_providers)?
             .commit_from_file(model_path)?;
@@ -165,7 +184,7 @@ impl ScrfdDetector {
         }
 
         if output_maps.is_empty() {
-            return Err(DetectorError::InvalidModel("No stride info found".into()));
+            return Err(FaceIdError::InvalidModel("No stride info found".into()));
         }
 
         let first_map = &output_maps[0];
@@ -174,7 +193,7 @@ impl ScrfdDetector {
             .iter()
             .find(|o| o.name() == first_map.score_name)
             .ok_or_else(|| {
-                DetectorError::InvalidModel(format!("Missing output: {}", first_map.score_name))
+                FaceIdError::InvalidModel(format!("Missing output: {}", first_map.score_name))
             })?;
 
         let num_anchors = if let Some(shape) = score_output.dtype().tensor_shape() {
@@ -212,7 +231,7 @@ impl ScrfdDetector {
         })
     }
 
-    pub fn detect(&mut self, img: &DynamicImage) -> Result<Vec<Face>, DetectorError> {
+    pub fn detect(&mut self, img: &DynamicImage) -> Result<Vec<Face>, FaceIdError> {
         let (processed_img, params) = self.preprocess(img);
         let input_tensor = self.create_input_tensor(&processed_img)?;
         let input_value = Value::from_array(input_tensor)?;
@@ -279,7 +298,7 @@ impl ScrfdDetector {
     pub fn create_input_tensor(
         &self,
         img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
-    ) -> Result<Array4<f32>, DetectorError> {
+    ) -> Result<Array4<f32>, FaceIdError> {
         let (width, height) = img.dimensions();
         let w = width as usize;
         let h = height as usize;
@@ -310,7 +329,7 @@ impl ScrfdDetector {
         output_maps: &[OutputMap],
         anchors_list: &[Array2<f32>],
         config: &DetectorConfig,
-    ) -> Result<Vec<Face>, DetectorError> {
+    ) -> Result<Vec<Face>, FaceIdError> {
         let mut candidate_faces = Vec::new();
 
         for (idx, map) in output_maps.iter().enumerate() {
@@ -395,7 +414,7 @@ impl ScrfdDetector {
     fn extract_and_reshape(
         outputs: &SessionOutputs,
         key: &str,
-    ) -> Result<Array2<f32>, DetectorError> {
+    ) -> Result<Array2<f32>, FaceIdError> {
         let array = outputs[key].try_extract_array::<f32>()?;
         if array.ndim() == 3 && array.shape()[0] == 1 {
             Ok(array

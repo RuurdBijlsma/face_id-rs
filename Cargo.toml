@@ -16,6 +16,7 @@ thiserror = "2.0.18"
 image = { version = "0.25.9", features = ["rayon"] }
 serde = { version = "1.0.228", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.149", optional = true }
+hf-hub = { version = "0.5.0", features = ["tokio"], optional = true }
 bon = "3.9.0"
 
 [dev-dependencies]
@@ -24,13 +25,15 @@ serde = { version = "1.0.228", features = ["derive"] }
 serde_json = { version = "1.0.149" }
 imageproc = "0.26.1"
 criterion = { version = "0.8.1", features = ["html_reports"] }
+tokio = "1.50.0"
 
 [features]
-default = ["serde", "download-binaries", "copy-dylibs"]
+default = ["serde", "download-binaries", "copy-dylibs", "hf-hub"]
 serde = ["dep:serde", "dep:serde_json"]
 download-binaries = ["ort/download-binaries"]
 copy-dylibs = ["ort/copy-dylibs"]
 load-dynamic = ["ort/load-dynamic"]
+hf-hub = ["dep:hf-hub"] # -> Enable downloading models from HuggingFace, relies on `tokio`
 # ort execution providers
 cuda = ["ort/cuda"]
 tensorrt = ["ort/tensorrt"]

@@ -11,14 +11,14 @@ This crate uses SCRDF face detection models. The following models are available:
 > The naming convention for the ONNX models indicates the computational complexity (measured in FLOPs) and whether the
 > model includes 5 facial keypoints predictions in addition to standard bounding boxes.
 
-| Model Name            | Complexity        | Bounding Boxes | 5 Facial Keypoints |
-|:----------------------|:------------------|:--------------:|:------------------:|
-| **`500m.onnx`**       | 500 Million FLOPs |       ✅        |         ❌          |
-| **`1g.onnx`**         | 1 Giga FLOPs      |       ✅        |         ❌          |
-| **`2.5g_bnkps.onnx`** | 2.5 Giga FLOPs    |       ✅        |         ✅          |
-| **`10g_bnkps.onnx`**  | 10 Giga FLOPs     |       ✅        |         ✅          |
-| **`34g.onnx`**        | 34 Giga FLOPs     |       ✅        |         ❌          |
-| **`34g_gnkps.onnx`**  | 34 Giga FLOPs     |       ✅        |         ❌          |
+|      Name       | Easy  | Medium | Hard  | FLOPs | Params(M) | Infer(ms) | BBox | Facial Keypoints |
+|:---------------:|-------|--------|-------|-------|-----------|-----------|:-----|:-----------------|
+|    500m.onnx    | 90.57 | 88.12  | 68.51 | 500M  | 0.57      | 3.6       | ✅    | ❌                |
+|     1g.onnx     | 92.38 | 90.57  | 74.80 | 1G    | 0.64      | 4.1       | ✅    | ❌                |
+|    34g.onnx     | 96.06 | 94.92  | 85.29 | 34G   | 9.80      | 11.7      | ✅    | ❌                |
+| 2.5g_bnkps.onnx | 93.80 | 92.02  | 77.13 | 2.5G  | 0.82      | 4.3       | ✅    | ✅                |
+| 10g_bnkps.onnx  | 95.40 | 94.01  | 82.80 | 10G   | 4.23      | 5.0       | ✅    | ✅                |
+| 34g_gnkps.onnx  | ?     | ?      | ?     | 34G   | ?         | ?         | ✅    | ✅                |
 
 ### Keypoints (`kps`) and Normalization Types (`bn` vs `gn`)
 

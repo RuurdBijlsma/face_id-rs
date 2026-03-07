@@ -1,7 +1,9 @@
+#[cfg(feature = "hf-hub")]
+use hf_hub::api::tokio::ApiError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum DetectorError {
+pub enum FaceIdError {
     #[error("IO Error: {0}")]
     Io(#[from] std::io::Error),
     #[error("Image Error: {0}")]
@@ -14,10 +16,20 @@ pub enum DetectorError {
     Decode,
     #[error("Invalid Model: {0}")]
     InvalidModel(String),
+    #[cfg(feature = "hf-hub")]
+    #[error("Hugging Face Hub error: {0}")]
+    HfHub(String),
 }
 
-impl<T> From<ort::Error<T>> for DetectorError {
+impl<T> From<ort::Error<T>> for FaceIdError {
     fn from(err: ort::Error<T>) -> Self {
         Self::Ort(err.to_string())
+    }
+}
+
+#[cfg(feature = "hf-hub")]
+impl From<ApiError> for FaceIdError {
+    fn from(value: ApiError) -> Self {
+        Self::HfHub(value.to_string())
     }
 }
