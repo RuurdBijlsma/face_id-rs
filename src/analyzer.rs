@@ -1,9 +1,9 @@
 use crate::detector::{DetectedFace, ScrfdDetector};
+use crate::embedder::ArcFaceEmbedder;
 use crate::error::FaceIdError;
 use crate::face_align::norm_crop;
 use crate::gender_age::{GenderAge, GenderAgeEstimator};
 use crate::model_manager::HfModel;
-use crate::embedder::ArcFaceEmbedder;
 use bon::bon;
 use image::DynamicImage;
 use ort::ep::ExecutionProviderDispatch;

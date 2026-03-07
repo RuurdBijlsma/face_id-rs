@@ -1,15 +1,173 @@
 # Face ID
 
-Face detection & recognition crate.
+Easily run face detection, landmark prediction, facial recognition, and attribute estimation in Rust via ONNX Runtime.
+
+[![Crates.io](https://img.shields.io/crates/v/face_id.svg)](https://crates.io/crates/face_id)
+[![Documentation](https://docs.rs/face_id/badge.svg)](https://docs.rs/face_id)
 
 ![img.png](.github/readme_img.png)
 
-## Face detection
+## Features
 
-This crate uses SCRDF face detection models. The following models are available:
+- **Detection**: Face detection using [SCRFD](https://github.com/deepinsight/insightface/tree/master/detection/scrfd).
+- **Landmarks**: Predict 5 facial keypoints (eyes, nose, mouth) for alignment.
+- **Recognition**: Generate 512-d embeddings
+  using [ArcFace](https://github.com/deepinsight/insightface/tree/master/recognition/arcface_torch) for identity
+  verification.
+- **Attributes**: Estimate gender and age.
+- **Automatic Alignment**: Built-in transforms to align faces to the pose required by recognition models.
+- **HF Integration**: Automatically download pre-trained models from HuggingFace.
 
-> The naming convention for the ONNX models indicates the computational complexity (measured in FLOPs) and whether the
-> model includes 5 facial keypoints predictions in addition to standard bounding boxes.
+## Usage
+
+The `FaceAnalyzer` is the easiest way to use this crate. It handles the entire pipeline: detecting faces, aligning them,
+and running recognition/attribute models in batches.
+
+```rust
+use face_id::analyzer::FaceAnalyzer;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // Initialize the analyzer (downloads models from HuggingFace on first run)
+    let analyzer = FaceAnalyzer::from_hf().build().await?;
+
+    let img = image::open("assets/img/crowd.jpg")?;
+    let faces = analyzer.analyze(&img)?;
+
+    for (i, face) in faces.iter().enumerate() {
+        println!("Face #{}", i);
+        println!("  Score: {:.2}", face.detection.score);
+        println!("  BBox: {:?}", face.detection.bbox);
+
+        if let Some(ga) = &face.gender_age {
+            println!("  Gender: {:?}, Age: {}", ga.gender, ga.age);
+        }
+
+        if let Some(emb) = &face.embedding {
+            println!("  Embedding (first 5 dims): {:?}", &emb[..5]);
+        }
+    }
+
+    Ok(())
+}
+```
+
+## Usage: Individual Components
+
+You can also use the components individually if you don't need the full pipeline.
+
+### Face Detection only
+
+The `ScrfdDetector` finds face bounding boxes when given an image. When using a `_kps` model, it also returns the
+location of the eyes, nose and mouth.
+
+```rust
+use face_id::detector::ScrfdDetector;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let mut detector = ScrfdDetector::from_hf().build().await?;
+    let face_boxes = detector.detect(&img)?;
+}
+```
+
+### Facial Recognition (Embeddings)
+
+Recognition requires **aligned** face crops, meaning the eyes, nose and mouth are warped to the spot the embedding model
+expects them. This crate provides `face_align::norm_crop` to transform a face based on its landmarks into the 112x112
+format required by ArcFace.
+
+```rust
+use face_id::embedder::ArcFaceEmbedder;
+use face_id::face_align::norm_crop;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let mut embedder = ArcFaceEmbedder::from_hf().build().await?;
+
+    // Align the face using landmarks from `ScrfdDetector`.
+    let aligned_img = norm_crop(&img, &landmarks, 112);
+
+    // Compute embedding
+    let embedding = embedder.compute_embedding(&aligned_img)?;
+
+    // Now you can compare if two faces are the same person, 
+    // or cluster a bunch of face embeddings to group them.
+}
+```
+
+## Loading Local Models
+If you want to use local ONNX model files instead of downloading from `HuggingFace`,
+use the `new()` builder.
+```rust
+use face_id::analyzer::FaceAnalyzer;
+fn main() -> anyhow::Result<()> {
+    let analyzer = FaceAnalyzer::builder(
+        "models/det.onnx", // Detector
+        "models/rec.onnx", // Embedder (Recognition)
+        "models/attr.onnx" // Gender/Age
+    )
+    .build()?;
+    
+    Ok(())
+}
+```
+
+
+## Customizing Hugging Face Models
+You can mix and match specific model versions from Hugging Face repositories.
+For example, using the medium-complexity `10g_bnkps` detector instead of the default:
+```rust
+use face_id::analyzer::FaceAnalyzer;
+use face_id::model_manager::HfModel;
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let analyzer = FaceAnalyzer::from_hf()
+        // Specify a smaller detector model than the default:
+        // > `embedder_model` and `gender_age_model` can also be specified in the builder.
+        .detector_model(HfModel {
+            id: "public-data/insightface".to_string(),
+            file: "models/buffalo_l/det_10g.onnx".to_string(),
+        })
+        .detector_input_size((640, 640))
+        .detector_score_threshold(0.5)
+        .detector_iou_threshold(0.4)
+        .build()
+        .await?;
+    Ok(())
+}
+```
+
+## Execution Providers (Nvidia, AMD, Intel, Mac, Arm, etc.)
+
+Since this is implemented with `ort`, many execution providers are available to enable hardware acceleration. You can
+enable an execution provider in this crate with cargo features. A full list of execution providers is
+available [here](https://ort.pyke.io/perf/execution-providers).
+
+To use CUDA, add the `cuda` feature to your `Cargo.toml` and configure the builder:
+
+```rust
+use face_id::analyzer::FaceAnalyzer;
+use ort::ep::{CUDA, TensorRT};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let analyzer = FaceAnalyzer::from_hf()
+        .with_execution_providers(&[
+            TensorRT::default().build(),
+            CUDA::default().build(),
+        ])
+        .build()
+        .await?;
+}
+```
+
+## Model Details
+
+### Detection (SCRFD)
+
+The naming convention for SCRFD models indicates complexity (FLOPs) and whether they include 5-point facial keypoints (
+`kps`).
 
 |      Name       | Easy  | Medium | Hard  | FLOPs | Params(M) | Infer(ms) | BBox | Facial Keypoints |
 |:---------------:|-------|--------|-------|-------|-----------|-----------|:-----|:-----------------|
@@ -18,22 +176,38 @@ This crate uses SCRDF face detection models. The following models are available:
 |    34g.onnx     | 96.06 | 94.92  | 85.29 | 34G   | 9.80      | 11.7      | ✅    | ❌                |
 | 2.5g_bnkps.onnx | 93.80 | 92.02  | 77.13 | 2.5G  | 0.82      | 4.3       | ✅    | ✅                |
 | 10g_bnkps.onnx  | 95.40 | 94.01  | 82.80 | 10G   | 4.23      | 5.0       | ✅    | ✅                |
-| 34g_gnkps.onnx  | ?     | ?      | ?     | 34G   | ?         | ?         | ✅    | ✅                |
+| 34g_gnkps.onnx  | 96.17 | 95.19  | 84.88 | 34G   | 9.84      | 11.8      | ✅    | ✅                |
 
-### Keypoints (`kps`) and Normalization Types (`bn` vs `gn`)
+- **BN vs GN**: `bnkps` (Batch Norm) models have higher general recall. `gnkps` (Group Norm) models are specifically
+  better at handling very large faces or faces rotated past 90 degrees.
+- Easy/Medium/Hard refers to accuracy on training data,
+  source: [insightface](https://github.com/deepinsight/insightface/blob/master/detection/scrfd/README.md#pretrained-models).
+- `34g_gnkps` is an evolution of the `bnkps` models, more info, and source for the `gnkps` numbers
+  here: https://modelscope.cn/models/iic/cv_resnet_facedetection_scrfd10gkps/summary
 
-- **`kps`**: Denotes models that output 5 facial landmarks (keypoints) in addition to the standard bounding boxes.
-- **`bnkps`**: Models trained using **Batch Normalization (BN)**. These often have lower false-positive rates and high
-  recall on general datasets. However, they occasionally struggle with producing accurate landmarks for faces that are
-  rotated past 90 degrees or are unusually large.
-- **`gnkps`**: Models trained using **Group Normalization (GN)**. These variants (e.g., `34g_gnkps` or `10g_gnkps`) were
-  explicitly developed to fix issues with very large faces that the `bnkps` models exhibited. While they improve
-  landmark quality on large or rotated faces, they might have slightly lower general recall than `bnkps`.
+### Recognition (ArcFace)
 
-## Face recognition (embeddings)
+The default recognition model is `w600k_r50.onnx` (ResNet-50) from the InsightFace "Buffalo_L" bundle. It produces a *
+*512-dimensional** L2-normalized vector.
 
-Use ArcFace ... explain more here. it needs to get aligned faces where the mouth, nose, eyes are in exact spots in an
-112x112 image.
-this is handled by this crate.
+## Features
 
-you can use hf model id: public-data/insightface with filename "models/buffalo_l/w600k_r50.onnx" to embed faces.
+- `hf-hub` (Default): Allows downloading models from Hugging Face.
+- `copy-dylibs` / `download-binaries` (Default): Simplifies `ort` setup.
+- `serde`: Enables serialization/deserialization for results.
+- **Execution Providers**: `cuda`, `tensorrt`, `coreml`, `directml`, `openvino`, etc.
+
+## Troubleshooting
+
+### Dynamic Linking
+
+If you are using the `load-dynamic` feature and encounter library errors:
+
+1. Download the `onnxruntime` library from [GitHub Releases](https://github.com/microsoft/onnxruntime/releases).
+2. Set the `ORT_DYLIB_PATH` environment variable:
+   ```shell
+   # Linux/macOS
+   export ORT_DYLIB_PATH="/path/to/libonnxruntime.so"
+   # Windows (PowerShell)
+   $env:ORT_DYLIB_PATH = "C:/path/to/onnxruntime.dll"
+   ```

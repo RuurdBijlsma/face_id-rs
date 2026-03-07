@@ -1,6 +1,6 @@
 [package]
 name = "face_id"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 exclude = ["assets", ".github", "output_previews"]
 description = "Face detection (bounding boxes, eyes/nose/mouth markers), and facial recognition (embeddings)."
@@ -31,7 +31,7 @@ rayon = "1.10"
 tokio = { version = "1.50", features = ["rt", "macros"] }
 
 [features]
-default = ["serde", "download-binaries", "copy-dylibs", "hf-hub"]
+default = ["download-binaries", "copy-dylibs", "hf-hub", "serde"]
 serde = ["dep:serde", "dep:serde_json"]
 download-binaries = ["ort/download-binaries"]
 copy-dylibs = ["ort/copy-dylibs"]
