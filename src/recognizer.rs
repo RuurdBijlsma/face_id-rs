@@ -1,5 +1,5 @@
 use crate::error::FaceIdError;
-use crate::model_manager::{get_hf_model, HfModel};
+use crate::model_manager::{HfModel, get_hf_model};
 use bon::bon;
 use image::{ImageBuffer, Rgb};
 use ndarray::Array4;
@@ -57,20 +57,29 @@ impl ArcFaceEmbedder {
         let outputs = self
             .session
             .run(ort::inputs![&self.input_name => input_value])?;
-        dbg!("Batch called session.run", &outputs);
+        let mut output_tensor = outputs[0].try_extract_array::<f32>()?.to_owned();
 
-        let output_tensor = outputs[0].try_extract_array::<f32>()?;
+        // --- Vectorized L2 Normalization ---
 
-        // The output_tensor shape will be [N, 512]
+        // 1. Compute square of every element
+        // 2. Sum along Axis 1 (the 512-d embedding axis) to get squared norms [N, 1]
+        let sq_sums = (&output_tensor * &output_tensor)
+            .sum_axis(ndarray::Axis(1))
+            .insert_axis(ndarray::Axis(1)); // Reshape from [N] to [N, 1] for broadcasting
+
+        // 3. Compute sqrt(sum) with an epsilon to avoid division by zero
+        let norms = sq_sums.mapv(|x| x.max(1e-12).sqrt());
+
+        // 4. Divide the whole matrix by the norms (Broadcasting)
+        output_tensor /= &norms;
+
+        // --- Convert to Vec<Vec<f32>> ---
         let batch_size = output_tensor.shape()[0];
         let mut results = Vec::with_capacity(batch_size);
 
         for i in 0..batch_size {
-            // Extract the 512-d row for each face in the batch
-            let row = output_tensor.slice(ndarray::s![i, ..]);
-            let mut embedding: Vec<f32> = row.iter().copied().collect();
-            Self::l2_normalize(&mut embedding);
-            results.push(embedding);
+            // Since we already normalized the whole matrix, we just copy the rows
+            results.push(output_tensor.slice(ndarray::s![i, ..]).to_vec());
         }
 
         Ok(results)
@@ -88,7 +97,8 @@ impl ArcFaceEmbedder {
             let (w, h) = img.dimensions();
             if w != 112 || h != 112 {
                 return Err(FaceIdError::InvalidModel(format!(
-                    "ArcFace requires 112x112 input, got {}x{}", w, h
+                    "ArcFace requires 112x112 input, got {}x{}",
+                    w, h
                 )));
             }
 
@@ -118,56 +128,18 @@ impl ArcFaceEmbedder {
         &mut self,
         aligned_img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
     ) -> Result<Vec<f32>, FaceIdError> {
-        let input_tensor = self.create_input_tensor(aligned_img)?;
-        let input_value = Value::from_array(input_tensor)?;
-
-        let outputs = self
-            .session
-            .run(ort::inputs![&self.input_name => input_value])?;
-        dbg!("Single called session.run");
-
-        // Extract the first output (the embedding)
-        let output_tensor = outputs[0].try_extract_array::<f32>()?;
-
-        // Flatten to Vec and normalize
-        let mut embedding: Vec<f32> = output_tensor.iter().copied().collect();
-        Self::l2_normalize(&mut embedding);
-
-        Ok(embedding)
+        let mut results = self.compute_embeddings_batch(std::slice::from_ref(aligned_img))?;
+        results
+            .pop()
+            .ok_or_else(|| FaceIdError::Ort("Recognizer failed to produce an embedding".into()))
     }
 
-    /// Optimized preprocessing: Converts HWC ImageBuffer to NCHW Array4
-    /// and applies ArcFace normalization: (pixel - 127.5) / 127.5
+    /// Preprocessing wrapper for a single image.
     pub fn create_input_tensor(
         &self,
         img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
     ) -> Result<Array4<f32>, FaceIdError> {
-        let (w, h) = img.dimensions();
-        if w != 112 || h != 112 {
-            return Err(FaceIdError::InvalidModel(format!(
-                "ArcFace requires 112x112 input, got {}x{}",
-                w, h
-            )));
-        }
-
-        let mut array = Array4::<f32>::zeros((1, 3, h as usize, w as usize));
-        let raw = img.as_raw();
-
-        // Split the array into R, G, and B planes for NCHW layout
-        // This allows us to fill the memory contiguously without nested loops
-        let (r_plane, rest) = array
-            .as_slice_memory_order_mut()
-            .expect("Array is contiguous")
-            .split_at_mut(112 * 112);
-        let (g_plane, b_plane) = rest.split_at_mut(112 * 112);
-
-        for (i, pixel) in raw.chunks_exact(3).enumerate() {
-            r_plane[i] = (f32::from(pixel[0]) - 127.5) / 127.5;
-            g_plane[i] = (f32::from(pixel[1]) - 127.5) / 127.5;
-            b_plane[i] = (f32::from(pixel[2]) - 127.5) / 127.5;
-        }
-
-        Ok(array)
+        self.create_input_tensor_batch(std::slice::from_ref(img))
     }
 
     pub fn l2_normalize(vec: &mut [f32]) {
