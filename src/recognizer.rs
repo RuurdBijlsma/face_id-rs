@@ -34,7 +34,6 @@ impl ArcFaceEmbedder {
         let session = Session::builder()?
             .with_execution_providers(with_execution_providers)?
             .commit_from_file(model_path)?;
-        dbg!(&session);
 
         let input_name = session.inputs()[0].name().to_string();
 
@@ -42,6 +41,76 @@ impl ArcFaceEmbedder {
             session,
             input_name,
         })
+    }
+
+    pub fn compute_embeddings_batch(
+        &mut self,
+        aligned_imgs: &[ImageBuffer<Rgb<u8>, Vec<u8>>],
+    ) -> Result<Vec<Vec<f32>>, FaceIdError> {
+        if aligned_imgs.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let input_tensor = self.create_input_tensor_batch(aligned_imgs)?;
+        let input_value = Value::from_array(input_tensor)?;
+
+        let outputs = self
+            .session
+            .run(ort::inputs![&self.input_name => input_value])?;
+        dbg!("Batch called session.run", &outputs);
+
+        let output_tensor = outputs[0].try_extract_array::<f32>()?;
+
+        // The output_tensor shape will be [N, 512]
+        let batch_size = output_tensor.shape()[0];
+        let mut results = Vec::with_capacity(batch_size);
+
+        for i in 0..batch_size {
+            // Extract the 512-d row for each face in the batch
+            let row = output_tensor.slice(ndarray::s![i, ..]);
+            let mut embedding: Vec<f32> = row.iter().copied().collect();
+            Self::l2_normalize(&mut embedding);
+            results.push(embedding);
+        }
+
+        Ok(results)
+    }
+
+    fn create_input_tensor_batch(
+        &self,
+        imgs: &[ImageBuffer<Rgb<u8>, Vec<u8>>],
+    ) -> Result<Array4<f32>, FaceIdError> {
+        let batch_size = imgs.len();
+        // Shape: [N, 3, 112, 112]
+        let mut array = Array4::<f32>::zeros((batch_size, 3, 112, 112));
+
+        for (batch_idx, img) in imgs.iter().enumerate() {
+            let (w, h) = img.dimensions();
+            if w != 112 || h != 112 {
+                return Err(FaceIdError::InvalidModel(format!(
+                    "ArcFace requires 112x112 input, got {}x{}", w, h
+                )));
+            }
+
+            let raw = img.as_raw();
+            // Get a mutable view of the specific slice in the 4D array for this image
+            let mut view = array.slice_mut(ndarray::s![batch_idx, .., .., ..]);
+
+            // Split into R, G, B planes within this batch slice
+            let (r_plane, rest) = view
+                .as_slice_memory_order_mut()
+                .ok_or_else(|| FaceIdError::Ort("Failed to get mutable slice".into()))?
+                .split_at_mut(112 * 112);
+            let (g_plane, b_plane) = rest.split_at_mut(112 * 112);
+
+            for (i, pixel) in raw.chunks_exact(3).enumerate() {
+                r_plane[i] = (f32::from(pixel[0]) - 127.5) / 127.5;
+                g_plane[i] = (f32::from(pixel[1]) - 127.5) / 127.5;
+                b_plane[i] = (f32::from(pixel[2]) - 127.5) / 127.5;
+            }
+        }
+
+        Ok(array)
     }
 
     /// Takes an ALIGNED face image (112x112) and returns a normalized 512-d embedding.
@@ -52,10 +121,10 @@ impl ArcFaceEmbedder {
         let input_tensor = self.create_input_tensor(aligned_img)?;
         let input_value = Value::from_array(input_tensor)?;
 
-        // Fixed: removed the '?' from inside the run() call
         let outputs = self
             .session
             .run(ort::inputs![&self.input_name => input_value])?;
+        dbg!("Single called session.run");
 
         // Extract the first output (the embedding)
         let output_tensor = outputs[0].try_extract_array::<f32>()?;

@@ -89,7 +89,7 @@ impl FaceAnalyzer {
     /// Performs the full pipeline: detection -> alignment -> embedding -> gender/age estimation.
     pub fn analyze(&self, img: &DynamicImage) -> Result<Vec<FaceAnalysis>, FaceIdError> {
         // 1. Detect faces
-        let faces = {
+        let detections = {
             let mut det = self
                 .detector
                 .lock()
@@ -97,11 +97,19 @@ impl FaceAnalyzer {
             det.detect(img)?
         };
 
-        let mut results = Vec::with_capacity(faces.len());
+        if detections.is_empty() {
+            return Ok(vec![]);
+        }
 
-        for face in faces {
-            // 2. Alignment & Embedding
-            let mut embedding = None;
+        // We will store indices to map embeddings back to the correct face
+        let mut aligned_crops = Vec::new();
+        let mut face_indices_with_landmarks = Vec::new();
+
+        // 2. Prepare Alignment & Attribute estimation (Serial)
+        let mut results: Vec<FaceAnalysis> = Vec::with_capacity(detections.len());
+
+        for (idx, face) in detections.into_iter().enumerate() {
+            // Check if we can align this face for the recognizer
             if let Some(landmarks) = &face.landmarks {
                 if landmarks.len() == 5 {
                     let lms_array: [(f32, f32); 5] = [
@@ -112,16 +120,12 @@ impl FaceAnalyzer {
                         landmarks[4],
                     ];
                     let aligned = norm_crop(img, &lms_array, 112);
-
-                    let mut rec = self
-                        .recognizer
-                        .lock()
-                        .map_err(|_| FaceIdError::MutexPoisoned("Recognizer lock poisoned".into()))?;
-                    embedding = Some(rec.compute_embedding(&aligned)?);
+                    aligned_crops.push(aligned);
+                    face_indices_with_landmarks.push(idx);
                 }
             }
 
-            // 3. Gender and Age estimation
+            // Estimate Gender/Age (Serial inference)
             let gender_age = {
                 let mut ga = self
                     .gender_age
@@ -132,9 +136,28 @@ impl FaceAnalyzer {
 
             results.push(FaceAnalysis {
                 detection: face,
-                embedding,
+                embedding: None, // Will fill this in the next step
                 gender_age,
             });
+        }
+
+        // 3. Batch Recognition Inference
+        if !aligned_crops.is_empty() {
+            let mut rec = self
+                .recognizer
+                .lock()
+                .map_err(|_| FaceIdError::MutexPoisoned("Recognizer lock poisoned".into()))?;
+
+            let embeddings = rec.compute_embeddings_batch(&aligned_crops)?;
+
+            // 4. Map embeddings back to the correct results
+            for (batch_idx, original_face_idx) in
+                face_indices_with_landmarks.into_iter().enumerate()
+            {
+                if let Some(emb) = embeddings.get(batch_idx) {
+                    results[original_face_idx].embedding = Some(emb.clone());
+                }
+            }
         }
 
         Ok(results)
