@@ -96,13 +96,15 @@ impl FaceAnalyzer {
         if detections.is_empty() {
             return Ok(vec![]);
         }
+        let mut embedder_aligned_crops = Vec::new();
+        let mut embedder_indices = Vec::new();
+        let mut gender_age_crops = Vec::new();
+        let mut gender_age_indices = Vec::new();
 
-        let mut aligned_crops = Vec::new();
-        let mut face_indices_with_landmarks = Vec::new();
-        let mut results: Vec<FaceAnalysis> = Vec::with_capacity(detections.len());
-
-        for (idx, face) in detections.into_iter().enumerate() {
-            if let Some(landmarks) = &face.landmarks {
+        // 1. Prepare crops for both models
+        for (idx, detection) in detections.iter().enumerate() {
+            // Recognition Alignment
+            if let Some(landmarks) = &detection.landmarks {
                 if landmarks.len() == 5 {
                     let lms_array: [(f32, f32); 5] = [
                         landmarks[0],
@@ -112,36 +114,49 @@ impl FaceAnalyzer {
                         landmarks[4],
                     ];
                     let aligned = norm_crop(img, &lms_array, 112);
-                    aligned_crops.push(aligned);
-                    face_indices_with_landmarks.push(idx);
+                    embedder_aligned_crops.push(aligned);
+                    embedder_indices.push(idx);
                 }
             }
-            let gender_age = {
-                let mut ga = self
-                    .gender_age
-                    .lock()
-                    .map_err(|_| FaceIdError::MutexPoisoned("GenderAge lock poisoned".into()))?;
-                ga.estimate(img, &face.bbox).ok()
-            };
-            results.push(FaceAnalysis {
-                detection: face,
-                embedding: None, // We fill this in the next step
-                gender_age,
-            });
+
+            // Gender/Age Alignment
+            let gender_age_crop = GenderAgeEstimator::align_crop(img, &detection.bbox, 96);
+            gender_age_crops.push(gender_age_crop);
+            gender_age_indices.push(idx);
         }
 
-        if !aligned_crops.is_empty() {
-            let mut rec = self
+        let mut results: Vec<FaceAnalysis> = detections
+            .into_iter()
+            .map(|det| FaceAnalysis {
+                detection: det,
+                embedding: None,
+                gender_age: None,
+            })
+            .collect();
+
+        // 2. Batch Inference: Recognizer
+        if !embedder_aligned_crops.is_empty() {
+            let mut embedder = self
                 .recognizer
                 .lock()
                 .map_err(|_| FaceIdError::MutexPoisoned("Recognizer lock poisoned".into()))?;
-
-            let embeddings = rec.compute_embeddings_batch(&aligned_crops)?;
-            for (batch_idx, original_face_idx) in
-                face_indices_with_landmarks.into_iter().enumerate()
-            {
+            let embeddings = embedder.compute_embeddings_batch(&embedder_aligned_crops)?;
+            for (batch_idx, original_idx) in embedder_indices.into_iter().enumerate() {
                 if let Some(emb) = embeddings.get(batch_idx) {
-                    results[original_face_idx].embedding = Some(emb.clone());
+                    results[original_idx].embedding = Some(emb.clone());
+                }
+            }
+        }
+
+        if !gender_age_crops.is_empty() {
+            let mut estimator = self
+                .gender_age
+                .lock()
+                .map_err(|_| FaceIdError::MutexPoisoned("GenderAge lock poisoned".into()))?;
+            let ga_results = estimator.estimate_batch(&gender_age_crops)?;
+            for (batch_idx, original_idx) in gender_age_indices.into_iter().enumerate() {
+                if let Some(res_val) = ga_results.get(batch_idx) {
+                    results[original_idx].gender_age = Some(res_val.clone());
                 }
             }
         }

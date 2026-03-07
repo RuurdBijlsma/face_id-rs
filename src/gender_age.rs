@@ -3,7 +3,7 @@ use crate::error::FaceIdError;
 use crate::model_manager::{get_hf_model, HfModel};
 use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
-use ndarray::Array4;
+use ndarray::{s, Array4};
 use ort::ep::ExecutionProviderDispatch;
 use ort::session::Session;
 use ort::value::Value;
@@ -58,35 +58,61 @@ impl GenderAgeEstimator {
         })
     }
 
+    /// Estimates gender and age for a batch of cropped face images.
+    pub fn estimate_batch(
+        &mut self,
+        face_imgs: &[ImageBuffer<Rgb<u8>, Vec<u8>>],
+    ) -> Result<Vec<GenderAge>, FaceIdError> {
+        if face_imgs.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let input_tensor = self.create_input_tensor_batch(face_imgs)?;
+        let input_value = Value::from_array(input_tensor)?;
+        let outputs = self
+            .session
+            .run(ort::inputs![&self.input_name => input_value])?;
+
+        let output_tensor = outputs[0].try_extract_array::<f32>()?;
+
+        // Handle output shape [N, 3]
+        let batch_size = face_imgs.len();
+        let mut results = Vec::with_capacity(batch_size);
+
+        for i in 0..batch_size {
+            let prob_female = output_tensor[[i, 0]];
+            let prob_male = output_tensor[[i, 1]];
+            let age_raw = output_tensor[[i, 2]];
+
+            let gender = if prob_male > prob_female {
+                Gender::Male
+            } else {
+                Gender::Female
+            };
+            let age = (age_raw * 100.0).round().max(0.0).min(100.0) as u8;
+            results.push(GenderAge { gender, age });
+        }
+
+        Ok(results)
+    }
+
     /// Estimates gender and age from an image and a detected face bounding box.
     pub fn estimate(
         &mut self,
         img: &DynamicImage,
         bbox: &BoundingBox,
     ) -> Result<GenderAge, FaceIdError> {
-        let cropped_face = self.align_crop(img, bbox, 96);
-        let input_tensor = self.create_input_tensor(&cropped_face)?;
-        let input_value = Value::from_array(input_tensor)?;
-        let outputs = self
-            .session
-            .run(ort::inputs![&self.input_name => input_value])?;
-        let output_tensor = outputs[0].try_extract_array::<f32>()?;
-        let prob_female = output_tensor[[0, 0]];
-        let prob_male = output_tensor[[0, 1]];
-        let age_raw = output_tensor[[0, 2]];
-        let gender = if prob_male > prob_female {
-            Gender::Male
-        } else {
-            Gender::Female
-        };
-        let age = (age_raw * 100.0).round().max(0.0).min(100.0) as u8;
-        Ok(GenderAge { gender, age })
+        let cropped_face = Self::align_crop(img, bbox, 96);
+        let results = self.estimate_batch(&[cropped_face])?;
+        results
+            .into_iter()
+            .next()
+            .ok_or_else(|| FaceIdError::Ort("GenderAge failed to produce output".into()))
     }
 
     /// InsightFace Attribute alignment: Creates a square crop based on the BBox
     /// with a 1.5x expansion factor to include context.
-    fn align_crop(
-        &self,
+    pub fn align_crop(
         img: &DynamicImage,
         bbox: &BoundingBox,
         output_size: u32,
@@ -138,30 +164,46 @@ impl GenderAgeEstimator {
             .to_rgb8()
     }
 
-    fn create_input_tensor(
+    fn create_input_tensor_batch(
         &self,
-        img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
+        imgs: &[ImageBuffer<Rgb<u8>, Vec<u8>>],
     ) -> Result<Array4<f32>, FaceIdError> {
-        let (w, h) = img.dimensions();
-        let mut array = Array4::<f32>::zeros((1, 3, h as usize, w as usize));
-        let raw = img.as_raw();
+        let batch_size = imgs.len();
+        let mut array = Array4::<f32>::zeros((batch_size, 3, 96, 96));
 
-        // Buffalo-L attribute genderage.onnx expects:
-        // 1. BGR channel order
-        // 2. Raw pixel values (0.0 to 255.0), no normalization/mean subtraction
+        for (batch_idx, img) in imgs.iter().enumerate() {
+            let (w, h) = img.dimensions();
+            if w != 96 || h != 96 {
+                return Err(FaceIdError::InvalidModel(format!(
+                    "GenderAge requires 96x96 input, got {}x{}",
+                    w, h
+                )));
+            }
 
-        let (b_plane, rest) = array
-            .as_slice_memory_order_mut()
-            .expect("Contiguous array")
-            .split_at_mut((w * h) as usize);
-        let (g_plane, r_plane) = rest.split_at_mut((w * h) as usize);
+            let raw = img.as_raw();
+            let mut view = array.slice_mut(s![batch_idx, .., .., ..]);
 
-        for (i, pixel) in raw.chunks_exact(3).enumerate() {
-            r_plane[i] = f32::from(pixel[0]); // R
-            g_plane[i] = f32::from(pixel[1]); // G
-            b_plane[i] = f32::from(pixel[2]); // B
+            // Buffalo-L attribute genderage.onnx expects: BGR channel order, 0-255 range
+            let (b_plane, rest) = view
+                .as_slice_memory_order_mut()
+                .ok_or_else(|| FaceIdError::Ort("Failed to get mutable slice".into()))?
+                .split_at_mut(96 * 96);
+            let (g_plane, r_plane) = rest.split_at_mut(96 * 96);
+
+            for (i, pixel) in raw.chunks_exact(3).enumerate() {
+                r_plane[i] = f32::from(pixel[0]); // R
+                g_plane[i] = f32::from(pixel[1]); // G
+                b_plane[i] = f32::from(pixel[2]); // B
+            }
         }
 
         Ok(array)
+    }
+
+    pub fn create_input_tensor(
+        &self,
+        img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
+    ) -> Result<Array4<f32>, FaceIdError> {
+        self.create_input_tensor_batch(std::slice::from_ref(img))
     }
 }
