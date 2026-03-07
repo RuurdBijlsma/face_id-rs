@@ -10,6 +10,8 @@ pub enum FaceIdError {
     Image(#[from] image::ImageError),
     #[error("ONNX Runtime Error: {0}")]
     Ort(String),
+    #[error("Mutex Poisoned Error: {0}")]
+    MutexPoisoned(String),
     #[error("NdArray Error: {0}")]
     NdArray(#[from] ndarray::ShapeError),
     #[error("Image Decoding Error")]

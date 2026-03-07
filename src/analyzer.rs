@@ -8,6 +8,7 @@ use bon::bon;
 use image::DynamicImage;
 use ort::ep::ExecutionProviderDispatch;
 use std::path::Path;
+use std::sync::Mutex;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -17,10 +18,12 @@ pub struct FaceAnalysis {
     pub gender_age: Option<GenderAge>,
 }
 
+/// A high-level analyzer that performs detection, alignment,
+/// recognition, and attribute estimation.
 pub struct FaceAnalyzer {
-    pub detector: ScrfdDetector,
-    pub recognizer: ArcFaceEmbedder,
-    pub gender_age: GenderAgeEstimator,
+    pub detector: Mutex<ScrfdDetector>,
+    pub recognizer: Mutex<ArcFaceEmbedder>,
+    pub gender_age: Mutex<GenderAgeEstimator>,
 }
 
 #[bon]
@@ -50,9 +53,9 @@ impl FaceAnalyzer {
             .await?;
 
         Ok(Self {
-            detector,
-            recognizer,
-            gender_age,
+            detector: Mutex::new(detector),
+            recognizer: Mutex::new(recognizer),
+            gender_age: Mutex::new(gender_age),
         })
     }
 
@@ -77,20 +80,27 @@ impl FaceAnalyzer {
             .build()?;
 
         Ok(Self {
-            detector,
-            recognizer,
-            gender_age,
+            detector: Mutex::new(detector),
+            recognizer: Mutex::new(recognizer),
+            gender_age: Mutex::new(gender_age),
         })
     }
 
     /// Performs the full pipeline: detection -> alignment -> embedding -> gender/age estimation.
-    pub fn analyze(&mut self, img: &DynamicImage) -> Result<Vec<FaceAnalysis>, FaceIdError> {
+    pub fn analyze(&self, img: &DynamicImage) -> Result<Vec<FaceAnalysis>, FaceIdError> {
         // 1. Detect faces
-        let faces = self.detector.detect(img)?;
+        let faces = {
+            let mut det = self
+                .detector
+                .lock()
+                .map_err(|_| FaceIdError::MutexPoisoned("Detector lock poisoned".into()))?;
+            det.detect(img)?
+        };
+
         let mut results = Vec::with_capacity(faces.len());
 
         for face in faces {
-            // 2. Alignment & Embedding (requires landmarks)
+            // 2. Alignment & Embedding
             let mut embedding = None;
             if let Some(landmarks) = &face.landmarks {
                 if landmarks.len() == 5 {
@@ -101,14 +111,24 @@ impl FaceAnalyzer {
                         landmarks[3],
                         landmarks[4],
                     ];
-                    // Standard ArcFace 112x112 alignment
                     let aligned = norm_crop(img, &lms_array, 112);
-                    embedding = Some(self.recognizer.compute_embedding(&aligned)?);
+
+                    let mut rec = self
+                        .recognizer
+                        .lock()
+                        .map_err(|_| FaceIdError::MutexPoisoned("Recognizer lock poisoned".into()))?;
+                    embedding = Some(rec.compute_embedding(&aligned)?);
                 }
             }
 
-            // 3. Gender and Age estimation (uses original image and bbox)
-            let gender_age = self.gender_age.estimate(img, &face.bbox).ok();
+            // 3. Gender and Age estimation
+            let gender_age = {
+                let mut ga = self
+                    .gender_age
+                    .lock()
+                    .map_err(|_| FaceIdError::MutexPoisoned("GenderAge lock poisoned".into()))?;
+                ga.estimate(img, &face.bbox).ok()
+            };
 
             results.push(FaceAnalysis {
                 detection: face,

@@ -2,7 +2,7 @@ use face_id::analyzer::FaceAnalyzer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut analyzer = FaceAnalyzer::from_hf().build().await?;
+    let analyzer = FaceAnalyzer::from_hf().build().await?;
 
     let img = image::open("assets/img/crowd.jpg")?;
     let results = analyzer.analyze(&img)?;
