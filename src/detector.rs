@@ -1,6 +1,9 @@
-use crate::error::DetectorError;
+use crate::error::FaceIdError;
+use crate::model_manager::{HfModel, get_hf_model};
+use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
-use ndarray::{Array4, Axis, Ix2, s, Array2};
+use ndarray::{Array2, Array4, Ix2, s};
+use ort::ep::ExecutionProviderDispatch;
 use ort::{
     session::{Session, SessionOutputs},
     value::Value,
@@ -9,45 +12,35 @@ use std::path::Path;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Face {
-    pub bbox: BBox,
+pub struct DetectedFace {
+    pub bbox: BoundingBox,
     pub landmarks: Option<Vec<(f32, f32)>>,
     pub score: f32,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct BBox {
+pub struct BoundingBox {
     pub x1: f32,
     pub y1: f32,
     pub x2: f32,
     pub y2: f32,
 }
 
-impl BBox {
+impl BoundingBox {
     #[must_use]
-    pub fn width(&self) -> f32 { self.x2 - self.x1 }
-    #[must_use]
-    pub fn height(&self) -> f32 { self.y2 - self.y1 }
-    #[must_use]
-    pub fn area(&self) -> f32 { self.width() * self.height() }
-}
+    pub fn width(&self) -> f32 {
+        self.x2 - self.x1
+    }
 
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct DetectorConfig {
-    pub input_size: (u32, u32),
-    pub score_threshold: f32,
-    pub iou_threshold: f32,
-}
+    #[must_use]
+    pub fn height(&self) -> f32 {
+        self.y2 - self.y1
+    }
 
-impl Default for DetectorConfig {
-    fn default() -> Self {
-        Self {
-            input_size: (640, 640),
-            score_threshold: 0.5,
-            iou_threshold: 0.4,
-        }
+    #[must_use]
+    pub fn area(&self) -> f32 {
+        self.width() * self.height()
     }
 }
 
@@ -58,48 +51,188 @@ pub struct PreprocessParams {
     y_offset: f32,
 }
 
+#[derive(Debug, Clone)]
+pub struct OutputMap {
+    pub stride: i32,
+    pub score_name: String,
+    pub bbox_name: String,
+    pub kps_name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DetectorConfig {
+    pub input_size: (u32, u32),
+    pub score_threshold: f32,
+    pub iou_threshold: f32,
+}
+
 pub struct ScrfdDetector {
     pub session: Session,
     pub config: DetectorConfig,
     pub anchors: Vec<Array2<f32>>,
-    pub strides: Vec<i32>,
+    pub output_maps: Vec<OutputMap>,
     pub input_name: String,
 }
 
+#[bon]
 impl ScrfdDetector {
-    pub fn new(
-        model_path: impl AsRef<Path>,
-        config: DetectorConfig,
-    ) -> Result<Self, DetectorError> {
-        let session = Session::builder()?.commit_from_file(model_path)?;
-        let input_name = session.inputs()[0].name().to_string();
-
-        let mut strides: Vec<i32> = session
-            .outputs()
-            .iter()
-            .filter_map(|output| {
-                if output.name().starts_with("score_") {
-                    output.name()["score_".len()..].parse::<i32>().ok()
-                } else {
-                    None
-                }
-            })
-            .collect();
-        strides.sort_unstable();
-
-        if strides.is_empty() {
-            return Err(DetectorError::InvalidModel("No stride info found".into()));
-        }
-
-        let anchors = strides
-            .iter()
-            .map(|&s| Self::generate_anchors(config.input_size, s))
-            .collect();
-
-        Ok(Self { session, config, anchors, strides, input_name })
+    #[builder(finish_fn = build)]
+    pub async fn from_hf(
+        #[builder(default = HfModel::default_detector())] model: HfModel,
+        #[builder(default = (640, 640))] input_size: (u32, u32),
+        #[builder(default = 0.5)] score_threshold: f32,
+        #[builder(default = 0.4)] iou_threshold: f32,
+        #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
+    ) -> Result<Self, FaceIdError> {
+        let model_path = get_hf_model(model).await?;
+        Self::builder(model_path)
+            .input_size(input_size)
+            .score_threshold(score_threshold)
+            .iou_threshold(iou_threshold)
+            .with_execution_providers(with_execution_providers)
+            .build()
     }
 
-    pub fn detect(&mut self, img: &DynamicImage) -> Result<Vec<Face>, DetectorError> {
+    #[builder]
+    pub fn new(
+        #[builder(start_fn)] model_path: impl AsRef<Path>,
+        #[builder(default = (640, 640))] input_size: (u32, u32),
+        #[builder(default = 0.5)] score_threshold: f32,
+        #[builder(default = 0.4)] iou_threshold: f32,
+        #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
+    ) -> Result<Self, FaceIdError> {
+        let session = Session::builder()?
+            .with_execution_providers(with_execution_providers)?
+            .commit_from_file(model_path)?;
+        let input_name = session.inputs()[0].name().to_string();
+        let config = DetectorConfig {
+            input_size,
+            score_threshold,
+            iou_threshold,
+        };
+
+        let output_maps = Self::parse_output_maps(&session)?;
+
+        let first_map = &output_maps[0];
+        let score_output = session
+            .outputs()
+            .iter()
+            .find(|o| o.name() == first_map.score_name)
+            .ok_or_else(|| {
+                FaceIdError::InvalidModel(format!("Missing output: {}", first_map.score_name))
+            })?;
+
+        let num_anchors = score_output.dtype().tensor_shape().map_or(2, |shape| {
+            let h = i64::from(config.input_size.1 / first_map.stride as u32);
+            let w = i64::from(config.input_size.0 / first_map.stride as u32);
+            let total_anchors = if shape.len() > 1 {
+                shape.iter().rev().nth(1).copied().unwrap_or(0)
+            } else {
+                shape.iter().next().copied().unwrap_or(0)
+            };
+            if h * w == 0 {
+                2
+            } else if total_anchors > 0 && total_anchors % (h * w) == 0 {
+                (total_anchors / (h * w)) as usize
+            } else {
+                2
+            }
+        });
+
+        let anchors = output_maps
+            .iter()
+            .map(|m| Self::generate_anchors(config.input_size, m.stride, num_anchors))
+            .collect();
+
+        Ok(Self {
+            session,
+            config,
+            anchors,
+            output_maps,
+            input_name,
+        })
+    }
+
+    /// Helper to identify output nodes based on naming conventions or shapes.
+    fn parse_output_maps(session: &Session) -> Result<Vec<OutputMap>, FaceIdError> {
+        let mut output_maps = Vec::new();
+        let has_named = session
+            .outputs()
+            .iter()
+            .any(|o| o.name().starts_with("score_"));
+
+        if has_named {
+            let mut strides: Vec<i32> = session
+                .outputs()
+                .iter()
+                .filter_map(|output| output.name().strip_prefix("score_")?.parse::<i32>().ok())
+                .collect();
+            strides.sort_unstable();
+
+            for stride in strides {
+                let kps_name = format!("kps_{stride}");
+                let has_kps = session.outputs().iter().any(|o| o.name() == kps_name);
+                output_maps.push(OutputMap {
+                    stride,
+                    score_name: format!("score_{stride}"),
+                    bbox_name: format!("bbox_{stride}"),
+                    kps_name: if has_kps { Some(kps_name) } else { None },
+                });
+            }
+        } else {
+            let mut groups: std::collections::HashMap<i64, (String, String, String)> =
+                std::collections::HashMap::new();
+            for out in session.outputs() {
+                if let Some(shape) = out.dtype().tensor_shape() {
+                    let n = if shape.len() > 1 {
+                        shape[shape.len() - 2]
+                    } else {
+                        continue;
+                    };
+                    let last = shape[shape.len() - 1];
+                    let entry = groups
+                        .entry(n)
+                        .or_insert_with(|| (String::new(), String::new(), String::new()));
+                    if last == 1 || last == 2 {
+                        entry.0 = out.name().to_string();
+                    } else if last == 4 {
+                        entry.1 = out.name().to_string();
+                    } else if last == 10 || last == 15 {
+                        entry.2 = out.name().to_string();
+                    }
+                }
+            }
+
+            let mut n_keys: Vec<i64> = groups.keys().copied().filter(|&k| k > 0).collect();
+            n_keys.sort_unstable_by(|a, b| b.cmp(a));
+
+            let mut current_stride = 8;
+            for n in n_keys {
+                let entry = &groups[&n];
+                if !entry.0.is_empty() && !entry.1.is_empty() {
+                    output_maps.push(OutputMap {
+                        stride: current_stride,
+                        score_name: entry.0.clone(),
+                        bbox_name: entry.1.clone(),
+                        kps_name: if entry.2.is_empty() {
+                            None
+                        } else {
+                            Some(entry.2.clone())
+                        },
+                    });
+                    current_stride *= 2;
+                }
+            }
+        }
+
+        if output_maps.is_empty() {
+            return Err(FaceIdError::InvalidModel("No stride info found".into()));
+        }
+
+        Ok(output_maps)
+    }
+
+    pub fn detect(&mut self, img: &DynamicImage) -> Result<Vec<DetectedFace>, FaceIdError> {
         let (processed_img, params) = self.preprocess(img);
         let input_tensor = self.create_input_tensor(&processed_img)?;
         let input_value = Value::from_array(input_tensor)?;
@@ -109,33 +242,30 @@ impl ScrfdDetector {
         Self::postprocess(
             &outputs,
             &params,
-            &self.strides,
+            &self.output_maps,
             &self.anchors,
             &self.config,
         )
     }
 
-    fn generate_anchors(input_size: (u32, u32), stride: i32) -> Array2<f32> {
+    fn generate_anchors(input_size: (u32, u32), stride: i32, num_anchors: usize) -> Array2<f32> {
         let h = (input_size.1 / stride as u32) as usize;
         let w = (input_size.0 / stride as u32) as usize;
-        let mut anchors = Array2::zeros((h * w * 2, 2));
+        let stride_f = stride as f32;
 
-        for y in 0..h {
-            for x in 0..w {
-                let idx = (y * w + x) * 2;
-                let val_x = x as f32 * stride as f32;
-                let val_y = y as f32 * stride as f32;
-                anchors[[idx, 0]] = val_x;
-                anchors[[idx, 1]] = val_y;
-                anchors[[idx + 1, 0]] = val_x;
-                anchors[[idx + 1, 1]] = val_y;
-            }
-        }
-        anchors
+        Array2::from_shape_fn((h * w * num_anchors, 2), |(i, j)| {
+            let pixel_idx = i / num_anchors;
+            let y = (pixel_idx / w) as f32 * stride_f;
+            let x = (pixel_idx % w) as f32 * stride_f;
+            if j == 0 { x } else { y }
+        })
     }
 
     #[must_use]
-    pub fn preprocess(&self, img: &DynamicImage) -> (ImageBuffer<Rgb<u8>, Vec<u8>>, PreprocessParams) {
+    pub fn preprocess(
+        &self,
+        img: &DynamicImage,
+    ) -> (ImageBuffer<Rgb<u8>, Vec<u8>>, PreprocessParams) {
         let (w_in, h_in) = self.config.input_size;
         let (w_orig, h_orig) = img.dimensions();
 
@@ -149,110 +279,171 @@ impl ScrfdDetector {
         let x_offset = (w_in - w_new) as f32 / 2.0;
         let y_offset = (h_in - h_new) as f32 / 2.0;
 
-        image::imageops::overlay(&mut padded, &resized.to_rgb8(), x_offset as i64, y_offset as i64);
+        image::imageops::overlay(
+            &mut padded,
+            &resized.to_rgb8(),
+            x_offset as i64,
+            y_offset as i64,
+        );
 
-        (padded, PreprocessParams { ratio, x_offset, y_offset })
+        (
+            padded,
+            PreprocessParams {
+                ratio,
+                x_offset,
+                y_offset,
+            },
+        )
     }
 
-    pub fn create_input_tensor(&self, img: &ImageBuffer<Rgb<u8>, Vec<u8>>) -> Result<Array4<f32>, DetectorError> {
+    pub fn create_input_tensor(
+        &self,
+        img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
+    ) -> Result<Array4<f32>, FaceIdError> {
         let (width, height) = img.dimensions();
+        let w = width as usize;
+        let h = height as usize;
+        let raw = img.as_raw();
 
-        // Convert ImageBuffer to ndarray (H, W, C)
-        let mut array = ndarray::Array3::zeros((height as usize, width as usize, 3));
-        for (x, y, pixel) in img.enumerate_pixels() {
-            let rgb = pixel.0;
-            array[[y as usize, x as usize, 0]] = (f32::from(rgb[0]) - 127.5) / 128.0;
-            array[[y as usize, x as usize, 1]] = (f32::from(rgb[1]) - 127.5) / 128.0;
-            array[[y as usize, x as usize, 2]] = (f32::from(rgb[2]) - 127.5) / 128.0;
+        let mut array = Array4::<f32>::zeros((1, 3, h, w));
+
+        let (r_plane, rest) = array
+            .as_slice_memory_order_mut()
+            .ok_or_else(|| {
+                FaceIdError::FailedToGetMutableSlice(
+                    "Failed to get mutable slice from array".into(),
+                )
+            })?
+            .split_at_mut(h * w);
+        let (g_plane, b_plane) = rest.split_at_mut(h * w);
+
+        // Convert HWC directly to NCHW normalized without intermediate allocations
+        // The image is internally contiguous R, G, B triplets.
+        for (i, pixel) in raw.chunks_exact(3).enumerate() {
+            r_plane[i] = (f32::from(pixel[0]) - 127.5) / 128.0;
+            g_plane[i] = (f32::from(pixel[1]) - 127.5) / 128.0;
+            b_plane[i] = (f32::from(pixel[2]) - 127.5) / 128.0;
         }
 
-        // HWC to CHW
-        let array = array.permuted_axes([2, 0, 1]);
-        // Add batch dimension: NCHW
-        Ok(array.insert_axis(Axis(0)))
+        Ok(array)
     }
 
     pub fn postprocess(
         outputs: &SessionOutputs,
         params: &PreprocessParams,
-        strides: &[i32],
+        output_maps: &[OutputMap],
         anchors_list: &[Array2<f32>],
         config: &DetectorConfig,
-    ) -> Result<Vec<Face>, DetectorError> {
+    ) -> Result<Vec<DetectedFace>, FaceIdError> {
         let mut candidate_faces = Vec::new();
 
-        for (idx, &stride) in strides.iter().enumerate() {
-            let score_key = format!("score_{stride}");
-            let bbox_key = format!("bbox_{stride}");
-            let kps_key = format!("kps_{stride}");
-
-            let scores = outputs[score_key.as_str()].try_extract_array::<f32>()?.into_dimensionality::<Ix2>()?;
-            let bboxes = outputs[bbox_key.as_str()].try_extract_array::<f32>()?.into_dimensionality::<Ix2>()?;
-            let kps = outputs[kps_key.as_str()].try_extract_array::<f32>()?.into_dimensionality::<Ix2>()?;
+        for (idx, map) in output_maps.iter().enumerate() {
+            let scores = Self::extract_and_reshape(outputs, &map.score_name)?;
+            let bboxes = Self::extract_and_reshape(outputs, &map.bbox_name)?;
+            let kps = if let Some(ref kps_name) = map.kps_name {
+                Some(Self::extract_and_reshape(outputs, kps_name)?)
+            } else {
+                None
+            };
 
             let anchors = &anchors_list[idx];
+            let stride_f = map.stride as f32;
 
             for i in 0..scores.nrows() {
                 let score = scores[[i, 0]];
-                if score < config.score_threshold { continue; }
+                if score < config.score_threshold {
+                    continue;
+                }
 
                 let dist = bboxes.slice(s![i, ..]);
                 let anchor = anchors.slice(s![i, ..]);
+                let anchor_x = anchor[0];
+                let anchor_y = anchor[1];
 
-                let x1 = (dist[0].mul_add(-(stride as f32), anchor[0]) - params.x_offset) / params.ratio;
-                let y1 = (dist[1].mul_add(-(stride as f32), anchor[1]) - params.y_offset) / params.ratio;
-                let x2 = (dist[2].mul_add(stride as f32, anchor[0]) - params.x_offset) / params.ratio;
-                let y2 = (dist[3].mul_add(stride as f32, anchor[1]) - params.y_offset) / params.ratio;
+                let x1 = (dist[0].mul_add(-stride_f, anchor_x) - params.x_offset) / params.ratio;
+                let y1 = (dist[1].mul_add(-stride_f, anchor_y) - params.y_offset) / params.ratio;
+                let x2 = (dist[2].mul_add(stride_f, anchor_x) - params.x_offset) / params.ratio;
+                let y2 = (dist[3].mul_add(stride_f, anchor_y) - params.y_offset) / params.ratio;
 
-                let kps_dist = kps.slice(s![i, ..]);
-                let mut landmarks = Vec::with_capacity(5);
-                for j in 0..5 {
-                    landmarks.push((
-                        (kps_dist[j * 2].mul_add(stride as f32, anchor[0]) - params.x_offset) / params.ratio,
-                        (kps_dist[j * 2 + 1].mul_add(stride as f32, anchor[1]) - params.y_offset) / params.ratio,
-                    ));
-                }
-                candidate_faces.push(Face {
-                    bbox: BBox { x1, y1, x2, y2 },
-                    landmarks: Some(landmarks),
+                let landmarks = kps.as_ref().map(|kps_tensor| {
+                    let kps_dist = kps_tensor.slice(s![i, ..]);
+                    let mut lms = Vec::with_capacity(5);
+                    for j in 0..5 {
+                        let lx = (kps_dist[j * 2].mul_add(stride_f, anchor_x) - params.x_offset)
+                            / params.ratio;
+                        let ly = (kps_dist[j * 2 + 1].mul_add(stride_f, anchor_y)
+                            - params.y_offset)
+                            / params.ratio;
+                        lms.push((lx, ly));
+                    }
+                    lms
+                });
+
+                candidate_faces.push(DetectedFace {
+                    bbox: BoundingBox { x1, y1, x2, y2 },
+                    landmarks,
                     score,
                 });
             }
         }
-        Ok(Self::apply_nms(candidate_faces, config.iou_threshold))
+
+        Ok(Self::perform_non_maximum_suppression(
+            candidate_faces,
+            config.iou_threshold,
+        ))
     }
 
-    fn apply_nms(mut faces: Vec<Face>, iou_threshold: f32) -> Vec<Face> {
+    fn perform_non_maximum_suppression(
+        mut faces: Vec<DetectedFace>,
+        iou_threshold: f32,
+    ) -> Vec<DetectedFace> {
         faces.sort_unstable_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
-        });        let mut suppressed = vec![false; faces.len()];
-        for i in 0..faces.len() {
-            if suppressed[i] { continue; }
-            for j in (i + 1)..faces.len() {
-                if suppressed[j] { continue; }
-                if Self::calculate_iou(&faces[i].bbox, &faces[j].bbox) > iou_threshold {
-                    suppressed[j] = true;
-                }
+        });
+
+        let mut kept_faces: Vec<DetectedFace> = Vec::with_capacity(faces.len());
+        for face in faces {
+            let is_suppressed = kept_faces.iter().any(|kept| {
+                Self::compute_intersection_over_union(&face.bbox, &kept.bbox) > iou_threshold
+            });
+
+            if !is_suppressed {
+                kept_faces.push(face);
             }
         }
-        let mut idx = 0;
-        faces.retain(|_| {
-            let keep = !suppressed[idx];
-            idx += 1;
-            keep
-        });
-        faces
+
+        kept_faces
     }
 
-    fn calculate_iou(a: &BBox, b: &BBox) -> f32 {
+    fn extract_and_reshape(
+        outputs: &SessionOutputs,
+        key: &str,
+    ) -> Result<Array2<f32>, FaceIdError> {
+        let array = outputs[key].try_extract_array::<f32>()?;
+        if array.ndim() == 3 && array.shape()[0] == 1 {
+            Ok(array
+                .view()
+                .to_shape((array.shape()[1], array.shape()[2]))?
+                .to_owned()
+                .into_dimensionality::<Ix2>()?)
+        } else {
+            Ok(array.to_owned().into_dimensionality::<Ix2>()?)
+        }
+    }
+
+    fn compute_intersection_over_union(a: &BoundingBox, b: &BoundingBox) -> f32 {
         let x1 = a.x1.max(b.x1);
         let y1 = a.y1.max(b.y1);
         let x2 = a.x2.min(b.x2);
         let y2 = a.y2.min(b.y2);
+
         let intersection = (x2 - x1).max(0.0) * (y2 - y1).max(0.0);
-        if intersection <= 0.0 { return 0.0; }
+        if intersection <= 0.0 {
+            return 0.0;
+        }
+
         intersection / (a.area() + b.area() - intersection)
     }
 }
