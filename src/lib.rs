@@ -8,6 +8,6 @@
 pub mod detector;
 pub mod error;
 mod model_manager;
-mod face_align;
-mod recognizer;
-mod gender_age;
+pub mod face_align;
+pub mod recognizer;
+pub mod gender_age;
