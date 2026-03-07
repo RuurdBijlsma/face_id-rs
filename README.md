@@ -4,7 +4,7 @@ Face detection & recognition crate.
 
 ![img.png](.github/readme-img.png)
 
-## Face detection models
+## Face detection
 
 This crate uses SCRDF face detection models. The following models are available:
 
@@ -29,3 +29,11 @@ This crate uses SCRDF face detection models. The following models are available:
 - **`gnkps`**: Models trained using **Group Normalization (GN)**. These variants (e.g., `34g_gnkps` or `10g_gnkps`) were
   explicitly developed to fix issues with very large faces that the `bnkps` models exhibited. While they improve
   landmark quality on large or rotated faces, they might have slightly lower general recall than `bnkps`.
+
+## Face recognition
+
+Use ArcFace ... explain more here. it needs to get aligned faces where the mouth, nose, eyes are in exact spots in an
+112x112 image.
+this is handled by this crate.
+
+you can use hf model id: public-data/insightface with filename "models/buffalo_l/w600k_r50.onnx" to embed faces.

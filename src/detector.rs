@@ -12,22 +12,22 @@ use std::path::Path;
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct Face {
-    pub bbox: BBox,
+pub struct DetectedFace {
+    pub bbox: FaceBBox,
     pub landmarks: Option<Vec<(f32, f32)>>,
     pub score: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct BBox {
+pub struct FaceBBox {
     pub x1: f32,
     pub y1: f32,
     pub x2: f32,
     pub y2: f32,
 }
 
-impl BBox {
+impl FaceBBox {
     #[must_use]
     pub fn width(&self) -> f32 {
         self.x2 - self.x1
@@ -231,7 +231,7 @@ impl ScrfdDetector {
         })
     }
 
-    pub fn detect(&mut self, img: &DynamicImage) -> Result<Vec<Face>, FaceIdError> {
+    pub fn detect(&mut self, img: &DynamicImage) -> Result<Vec<DetectedFace>, FaceIdError> {
         let (processed_img, params) = self.preprocess(img);
         let input_tensor = self.create_input_tensor(&processed_img)?;
         let input_value = Value::from_array(input_tensor)?;
@@ -312,7 +312,7 @@ impl ScrfdDetector {
             .split_at_mut(h * w);
         let (g_plane, b_plane) = rest.split_at_mut(h * w);
 
-        // Optimize: convert HWC directly to NCHW normalized without intermediate allocations
+        // Convert HWC directly to NCHW normalized without intermediate allocations
         // The image is internally contiguous R, G, B triplets.
         for (i, pixel) in raw.chunks_exact(3).enumerate() {
             r_plane[i] = (f32::from(pixel[0]) - 127.5) / 128.0;
@@ -329,7 +329,7 @@ impl ScrfdDetector {
         output_maps: &[OutputMap],
         anchors_list: &[Array2<f32>],
         config: &DetectorConfig,
-    ) -> Result<Vec<Face>, FaceIdError> {
+    ) -> Result<Vec<DetectedFace>, FaceIdError> {
         let mut candidate_faces = Vec::new();
 
         for (idx, map) in output_maps.iter().enumerate() {
@@ -375,8 +375,8 @@ impl ScrfdDetector {
                     landmarks = Some(lms);
                 }
 
-                candidate_faces.push(Face {
-                    bbox: BBox { x1, y1, x2, y2 },
+                candidate_faces.push(DetectedFace {
+                    bbox: FaceBBox { x1, y1, x2, y2 },
                     landmarks,
                     score,
                 });
@@ -389,7 +389,7 @@ impl ScrfdDetector {
         ))
     }
 
-    fn perform_non_maximum_suppression(mut faces: Vec<Face>, iou_threshold: f32) -> Vec<Face> {
+    fn perform_non_maximum_suppression(mut faces: Vec<DetectedFace>, iou_threshold: f32) -> Vec<DetectedFace> {
         // Sort faces by score descending
         faces.sort_unstable_by(|a, b| {
             b.score
@@ -397,7 +397,7 @@ impl ScrfdDetector {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
 
-        let mut kept_faces: Vec<Face> = Vec::with_capacity(faces.len());
+        let mut kept_faces: Vec<DetectedFace> = Vec::with_capacity(faces.len());
         for face in faces {
             let is_suppressed = kept_faces.iter().any(|kept| {
                 Self::compute_intersection_over_union(&face.bbox, &kept.bbox) > iou_threshold
@@ -427,7 +427,7 @@ impl ScrfdDetector {
         }
     }
 
-    fn compute_intersection_over_union(a: &BBox, b: &BBox) -> f32 {
+    fn compute_intersection_over_union(a: &FaceBBox, b: &FaceBBox) -> f32 {
         let x1 = a.x1.max(b.x1);
         let y1 = a.y1.max(b.y1);
         let x2 = a.x2.min(b.x2);

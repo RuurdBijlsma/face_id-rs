@@ -1,5 +1,5 @@
 use color_eyre::eyre::Result;
-use face_id::detector::{Face, ScrfdDetector};
+use face_id::detector::{DetectedFace, ScrfdDetector};
 use serde::Serialize;
 use std::fs::{self, File};
 use std::path::Path;
@@ -7,7 +7,7 @@ use std::path::Path;
 #[derive(Serialize)]
 struct ImageTestResult {
     filename: String,
-    faces: Vec<Face>,
+    faces: Vec<DetectedFace>,
 }
 
 fn main() -> Result<()> {

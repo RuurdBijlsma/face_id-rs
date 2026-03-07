@@ -1,4 +1,4 @@
-use face_id::detector::{Face, ScrfdDetector};
+use face_id::detector::{DetectedFace, ScrfdDetector};
 use serde::Deserialize;
 use std::fs::File;
 use std::path::Path;
@@ -6,7 +6,7 @@ use std::path::Path;
 #[derive(Deserialize)]
 struct ImageTestResult {
     filename: String,
-    faces: Vec<Face>,
+    faces: Vec<DetectedFace>,
 }
 
 fn assert_approx_eq(actual: f32, expected: f32, label: &str) {
