@@ -85,7 +85,7 @@ use face_id::face_align::norm_crop;
 async fn main() -> anyhow::Result<()> {
     let mut embedder = ArcFaceEmbedder::from_hf().build().await?;
 
-    // Align the face using detected landmarks
+    // Align the face using landmarks from `ScrfdDetector`.
     let aligned_img = norm_crop(&img, &landmarks, 112);
 
     // Compute embedding
@@ -93,6 +93,48 @@ async fn main() -> anyhow::Result<()> {
 
     // Now you can compare if two faces are the same person, 
     // or cluster a bunch of face embeddings to group them.
+}
+```
+
+## Loading Local Models
+If you want to use local ONNX model files instead of downloading from `HuggingFace`,
+use the `new()` builder.
+```rust
+use face_id::analyzer::FaceAnalyzer;
+fn main() -> anyhow::Result<()> {
+    let analyzer = FaceAnalyzer::builder(
+        "models/det.onnx", // Detector
+        "models/rec.onnx", // Embedder (Recognition)
+        "models/attr.onnx" // Gender/Age
+    )
+    .build()?;
+    
+    Ok(())
+}
+```
+
+
+## Customizing Hugging Face Models
+You can mix and match specific model versions from Hugging Face repositories.
+For example, using the medium-complexity `10g_bnkps` detector instead of the default:
+```rust
+use face_id::analyzer::FaceAnalyzer;
+use face_id::model_manager::HfModel;
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let analyzer = FaceAnalyzer::from_hf()
+        // Specify a smaller detector model than the default:
+        // > `embedder_model` and `gender_age_model` can also be specified in the builder.
+        .detector_model(HfModel {
+            id: "public-data/insightface".to_string(),
+            file: "models/buffalo_l/det_10g.onnx".to_string(),
+        })
+        .detector_input_size((640, 640))
+        .detector_score_threshold(0.5)
+        .detector_iou_threshold(0.4)
+        .build()
+        .await?;
+    Ok(())
 }
 ```
 

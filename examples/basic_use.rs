@@ -1,11 +1,15 @@
 use color_eyre::eyre::Result;
 use face_id::analyzer::FaceAnalyzer;
+use face_id::model_manager::HfModel;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let analyzer = FaceAnalyzer::from_hf().build().await?;
+    let analyzer = FaceAnalyzer::from_hf().detector_model(HfModel{
+        id: "public-data/insightface".to_owned(),
+        file: "models/buffalo_l/det_10g.onnx".to_owned()
+    }).build().await?;
     let faces = analyzer.analyze(&image::open("assets/img/crowd.jpg")?)?;
 
     for (i, face) in faces.iter().enumerate() {
