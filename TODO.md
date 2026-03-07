@@ -22,3 +22,4 @@
           interpolation.
     * face recog model: arcface -> public-data/insightface / buffalo_l
 * age / gender estimation
+* get padded cropped faces

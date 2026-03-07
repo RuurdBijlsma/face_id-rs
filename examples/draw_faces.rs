@@ -11,7 +11,7 @@ fn main() -> Result<()> {
 
     let models_dir = "assets/models";
     let img_dir = "assets/img";
-    let base_output_dir = "output_previews";
+    let base_output_dir = "output_previews/draw_faces";
 
     // Iterate over all models
     for model_entry in fs::read_dir(models_dir)? {
