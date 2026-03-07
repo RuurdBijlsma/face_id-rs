@@ -76,7 +76,7 @@ pub struct ScrfdDetector {
 
 #[bon]
 impl ScrfdDetector {
-    #[builder(finish_fn=build)]
+    #[builder(finish_fn = build)]
     pub async fn from_hf(
         #[builder(default = HfModel::default_detector())] model: HfModel,
         #[builder(default = (640, 640))] input_size: (u32, u32),
@@ -111,6 +111,50 @@ impl ScrfdDetector {
             iou_threshold,
         };
 
+        let output_maps = Self::parse_output_maps(&session)?;
+
+        let first_map = &output_maps[0];
+        let score_output = session
+            .outputs()
+            .iter()
+            .find(|o| o.name() == first_map.score_name)
+            .ok_or_else(|| {
+                FaceIdError::InvalidModel(format!("Missing output: {}", first_map.score_name))
+            })?;
+
+        let num_anchors = score_output.dtype().tensor_shape().map_or(2, |shape| {
+            let h = i64::from(config.input_size.1 / first_map.stride as u32);
+            let w = i64::from(config.input_size.0 / first_map.stride as u32);
+            let total_anchors = if shape.len() > 1 {
+                shape.iter().rev().nth(1).copied().unwrap_or(0)
+            } else {
+                shape.iter().next().copied().unwrap_or(0)
+            };
+            if h * w == 0 {
+                2
+            } else if total_anchors > 0 && total_anchors % (h * w) == 0 {
+                (total_anchors / (h * w)) as usize
+            } else {
+                2
+            }
+        });
+
+        let anchors = output_maps
+            .iter()
+            .map(|m| Self::generate_anchors(config.input_size, m.stride, num_anchors))
+            .collect();
+
+        Ok(Self {
+            session,
+            config,
+            anchors,
+            output_maps,
+            input_name,
+        })
+    }
+
+    /// Helper to identify output nodes based on naming conventions or shapes.
+    fn parse_output_maps(session: &Session) -> Result<Vec<OutputMap>, FaceIdError> {
         let mut output_maps = Vec::new();
         let has_named = session
             .outputs()
@@ -185,44 +229,7 @@ impl ScrfdDetector {
             return Err(FaceIdError::InvalidModel("No stride info found".into()));
         }
 
-        let first_map = &output_maps[0];
-        let score_output = session
-            .outputs()
-            .iter()
-            .find(|o| o.name() == first_map.score_name)
-            .ok_or_else(|| {
-                FaceIdError::InvalidModel(format!("Missing output: {}", first_map.score_name))
-            })?;
-
-        let num_anchors = score_output.dtype().tensor_shape().map_or(2, |shape| {
-            let h = i64::from(config.input_size.1 / first_map.stride as u32);
-            let w = i64::from(config.input_size.0 / first_map.stride as u32);
-            let total_anchors = if shape.len() > 1 {
-                shape.iter().rev().nth(1).copied().unwrap_or(0)
-            } else {
-                shape.iter().next().copied().unwrap_or(0)
-            };
-            if h * w == 0 {
-                2
-            } else if total_anchors > 0 && total_anchors % (h * w) == 0 {
-                (total_anchors / (h * w)) as usize
-            } else {
-                2
-            }
-        });
-
-        let anchors = output_maps
-            .iter()
-            .map(|m| Self::generate_anchors(config.input_size, m.stride, num_anchors))
-            .collect();
-
-        Ok(Self {
-            session,
-            config,
-            anchors,
-            output_maps,
-            input_name,
-        })
+        Ok(output_maps)
     }
 
     pub fn detect(&mut self, img: &DynamicImage) -> Result<Vec<DetectedFace>, FaceIdError> {
@@ -302,7 +309,11 @@ impl ScrfdDetector {
 
         let (r_plane, rest) = array
             .as_slice_memory_order_mut()
-            .expect("Array was just created contiguously")
+            .ok_or_else(|| {
+                FaceIdError::FailedToGetMutableSlice(
+                    "Failed to get mutable slice from array".into(),
+                )
+            })?
             .split_at_mut(h * w);
         let (g_plane, b_plane) = rest.split_at_mut(h * w);
 

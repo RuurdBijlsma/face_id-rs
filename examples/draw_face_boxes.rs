@@ -1,3 +1,9 @@
+#![allow(
+    clippy::many_single_char_names,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
 use ab_glyph::{FontRef, PxScale};
 use color_eyre::eyre::Result;
 use face_id::analyzer::FaceAnalyzer;
@@ -32,7 +38,7 @@ async fn main() -> Result<()> {
     let mut all_results = Vec::new();
 
     // 4. Process all images in the directory
-    println!("Processing images in: {}", img_dir);
+    println!("Processing images in: {img_dir}");
     for entry in fs::read_dir(img_dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -47,7 +53,7 @@ async fn main() -> Result<()> {
         }
 
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
-        println!("\nAnalyzing: {}", filename);
+        println!("\nAnalyzing: {filename}");
 
         let img = image::open(&path)?;
         let mut output_img: RgbImage = img.to_rgb8();
@@ -60,17 +66,15 @@ async fn main() -> Result<()> {
             let det = &face.detection;
 
             // Print Info to Stdout
-            let ga_str = if let Some(ga) = &face.gender_age {
-                format!("{:?} (Age: {})", ga.gender, ga.age)
-            } else {
-                "N/A".to_string()
-            };
+            let ga_str = face.gender_age.as_ref().map_or_else(
+                || "N/A".to_string(),
+                |ga| format!("{:?} (Age: {})", ga.gender, ga.age),
+            );
 
-            let emb_preview = if let Some(emb) = &face.embedding {
-                format!("{:?}", &emb[..5]) // First 5 dims
-            } else {
-                "N/A".to_string()
-            };
+            let emb_preview = face
+                .embedding
+                .as_ref()
+                .map_or_else(|| "N/A".to_string(), |emb| format!("{:?}", &emb[..5]));
 
             println!(
                 "      [Face #{}] Score: {:.2} | GA: {} | Embedding (5 dims): {}...",
@@ -86,9 +90,9 @@ async fn main() -> Result<()> {
 
             // Pick color based on gender if available
             let color = match face.gender_age.as_ref().map(|ga| ga.gender) {
-                Some(Gender::Male) => Rgb([0, 150, 255]),   // Blue
+                Some(Gender::Male) => Rgb([0, 150, 255]),     // Blue
                 Some(Gender::Female) => Rgb([255, 105, 180]), // Pink
-                None => Rgb([0, 255, 0]),                    // Green
+                None => Rgb([0, 255, 0]),                     // Green
             };
 
             // Draw Bounding Box
@@ -127,7 +131,7 @@ async fn main() -> Result<()> {
         }
 
         // Save annotated image
-        let out_path = output_img_dir.join(format!("analysis_{}", filename));
+        let out_path = output_img_dir.join(format!("analysis_{filename}"));
         output_img.save(&out_path)?;
 
         // Collect data for JSON
@@ -142,8 +146,8 @@ async fn main() -> Result<()> {
     serde_json::to_writer_pretty(file, &all_results)?;
 
     println!("\nProcess complete!");
-    println!("Annotated images: {:?}", output_img_dir);
-    println!("Reference JSON: {}", output_json_path);
+    println!("Annotated images: {}", output_img_dir.display());
+    println!("Reference JSON: {output_json_path}");
 
     Ok(())
 }

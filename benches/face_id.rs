@@ -119,11 +119,11 @@ fn bench_parallel_processing(c: &mut Criterion) {
 
     group.bench_function("rayon_parallel_folder_analysis", |b| {
         b.iter(|| {
-            let _results: Vec<_> = images
+            let results: Vec<_> = images
                 .par_iter()
                 .map(|img| analyzer.analyze(img).unwrap())
                 .collect();
-            black_box(_results);
+            black_box(results);
         });
     });
 }

@@ -9,6 +9,8 @@ pub enum FaceIdError {
     #[error("Image Error: {0}")]
     Image(#[from] image::ImageError),
     #[error("ONNX Runtime Error: {0}")]
+    FailedToGetMutableSlice(String),
+    #[error("Failed to get mutable slice: {0}")]
     Ort(String),
     #[error("Mutex Poisoned Error: {0}")]
     MutexPoisoned(String),
