@@ -73,7 +73,9 @@ impl GenderAgeEstimator {
         let input_value = Value::from_array(input_tensor)?;
 
         // 3. Run Inference
-        let outputs = self.session.run(ort::inputs![&self.input_name => input_value])?;
+        let outputs = self
+            .session
+            .run(ort::inputs![&self.input_name => input_value])?;
         let output_tensor = outputs[0].try_extract_array::<f32>()?;
 
         // 4. Post-process
@@ -141,7 +143,11 @@ impl GenderAgeEstimator {
         // Resize the padded square crop to the model input size (96x96)
         let dynamic_canvas = DynamicImage::ImageRgba8(canvas);
         dynamic_canvas
-            .resize_exact(output_size, output_size, image::imageops::FilterType::Triangle)
+            .resize_exact(
+                output_size,
+                output_size,
+                image::imageops::FilterType::Triangle,
+            )
             .to_rgb8()
     }
 
@@ -153,17 +159,20 @@ impl GenderAgeEstimator {
         let mut array = Array4::<f32>::zeros((1, 3, h as usize, w as usize));
         let raw = img.as_raw();
 
-        // Attribute models use (x - 127.5) / 128.0 (same as SCRFD)
-        let (r_plane, rest) = array
+        // Buffalo-L attribute genderage.onnx expects:
+        // 1. BGR channel order
+        // 2. Raw pixel values (0.0 to 255.0), no normalization/mean subtraction
+
+        let (b_plane, rest) = array
             .as_slice_memory_order_mut()
             .expect("Contiguous array")
             .split_at_mut((w * h) as usize);
-        let (g_plane, b_plane) = rest.split_at_mut((w * h) as usize);
+        let (g_plane, r_plane) = rest.split_at_mut((w * h) as usize);
 
         for (i, pixel) in raw.chunks_exact(3).enumerate() {
-            r_plane[i] = (f32::from(pixel[0]) - 127.5) / 128.0;
-            g_plane[i] = (f32::from(pixel[1]) - 127.5) / 128.0;
-            b_plane[i] = (f32::from(pixel[2]) - 127.5) / 128.0;
+            r_plane[i] = f32::from(pixel[0]); // R
+            g_plane[i] = f32::from(pixel[1]); // G
+            b_plane[i] = f32::from(pixel[2]); // B
         }
 
         Ok(array)
