@@ -1,71 +1,117 @@
-use face_id::detector::{DetectedFace, ScrfdDetector};
-use serde::Deserialize;
-use std::fs::File;
+use face_id::analyzer::FaceAnalyzer;
+use std::fs;
 use std::path::Path;
 
-#[derive(Deserialize)]
-struct ImageTestResult {
-    filename: String,
-    faces: Vec<DetectedFace>,
+const EPSILON: f32 = 1e-3;
+
+fn approx_eq(a: f32, b: f32) -> bool {
+    (a - b).abs() < EPSILON
 }
 
-fn assert_approx_eq(actual: f32, expected: f32, label: &str) {
-    assert!(
-        (actual - expected).abs() < 1e-3,
-        "{label}: {actual} != {expected}",
-    );
-}
-
-#[test]
-fn test_regression_against_json() -> Result<(), Box<dyn std::error::Error>> {
-    let model_path = "assets/models/34g_gnkps.onnx";
-    let json_path = "assets/reference_output/test_data.json";
+#[tokio::test]
+async fn test_analyzer_consistency_with_reference() -> color_eyre::Result<()> {
+    // 1. Setup
     let img_dir = "assets/img";
+    let reference_path = "assets/reference_analysis.json";
 
-    let file = File::open(json_path)?;
-    let expected_results: Vec<ImageTestResult> = serde_json::from_reader(file)?;
-    let mut detector = ScrfdDetector::builder(model_path).build()?;
+    // Ensure reference file exists
+    if !Path::new(reference_path).exists() {
+        panic!(
+            "Reference file {} not found. Run the comprehensive_analysis example first.",
+            reference_path
+        );
+    }
 
-    for expected in expected_results {
-        let img_path = Path::new(img_dir).join(&expected.filename);
-        let img = image::open(img_path)?;
-        let mut actual_faces = detector.detect(&img)?;
+    // 2. Load Reference Data
+    let ref_file = fs::File::open(reference_path)?;
+    let reference_data: serde_json::Value = serde_json::from_reader(ref_file)?;
+    let reference_list = reference_data.as_array().expect("JSON should be an array");
 
+    // 3. Initialize Analyzer
+    let analyzer = FaceAnalyzer::from_hf().build().await?;
+
+    // 4. Run through images defined in the reference
+    for ref_entry in reference_list {
+        let filename = ref_entry["filename"].as_str().unwrap();
+        let ref_results = ref_entry["results"].as_array().unwrap();
+
+        let img_path = Path::new(img_dir).join(filename);
+        let img = image::open(&img_path).expect(&format!("Failed to open {}", filename));
+
+        // Run live analysis
+        let live_results = analyzer.analyze(&img)?;
+
+        // Check if face count matches
         assert_eq!(
-            actual_faces.len(),
-            expected.faces.len(),
-            "Count mismatch for {}",
-            expected.filename
+            live_results.len(),
+            ref_results.len(),
+            "Face count mismatch for image: {}",
+            filename
         );
 
-        actual_faces.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
-        let mut expected_faces = expected.faces;
-        expected_faces.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap());
+        for (i, live_face) in live_results.iter().enumerate() {
+            let ref_face = &ref_results[i];
 
-        for (i, (actual, exp)) in actual_faces.iter().zip(expected_faces.iter()).enumerate() {
-            let ctx = format!("{}:{}", expected.filename, i);
-            // Compare Score
-            assert_approx_eq(actual.score, exp.score, &format!("{ctx} Score",));
+            // A. Check Detection Score
+            let ref_score = ref_face["detection"]["score"].as_f64().unwrap() as f32;
+            assert!(
+                approx_eq(live_face.detection.score, ref_score),
+                "Score mismatch in {} for face {}",
+                filename,
+                i
+            );
 
-            // Compare BBox
-            assert_approx_eq(actual.bbox.x1, exp.bbox.x1, &format!("{ctx} BBox x1"));
-            assert_approx_eq(actual.bbox.y1, exp.bbox.y1, &format!("{ctx} BBox y1"));
-            assert_approx_eq(actual.bbox.x2, exp.bbox.x2, &format!("{ctx} BBox x2"));
-            assert_approx_eq(actual.bbox.y2, exp.bbox.y2, &format!("{ctx} BBox y2"));
+            // B. Check Bounding Box
+            let ref_bbox = &ref_face["detection"]["bbox"];
+            assert!(approx_eq(live_face.detection.bbox.x1, ref_bbox["x1"].as_f64().unwrap() as f32));
+            assert!(approx_eq(live_face.detection.bbox.y1, ref_bbox["y1"].as_f64().unwrap() as f32));
+            assert!(approx_eq(live_face.detection.bbox.x2, ref_bbox["x2"].as_f64().unwrap() as f32));
+            assert!(approx_eq(live_face.detection.bbox.y2, ref_bbox["y2"].as_f64().unwrap() as f32));
 
-            // Compare Landmarks
-            match (&actual.landmarks, &exp.landmarks) {
-                (Some(a_lms), Some(e_lms)) => {
-                    assert_eq!(a_lms.len(), e_lms.len(), "{ctx} Landmark count mismatch");
-                    for (j, (a_pt, e_pt)) in a_lms.iter().zip(e_lms.iter()).enumerate() {
-                        assert_approx_eq(a_pt.0, e_pt.0, &format!("{ctx} Lmk {j} x"));
-                        assert_approx_eq(a_pt.1, e_pt.1, &format!("{ctx} Lmk {j} y"));
-                    }
+            // C. Check Landmarks (if present)
+            if let Some(live_lms) = &live_face.detection.landmarks {
+                let ref_lms = ref_face["detection"]["landmarks"].as_array().unwrap();
+                for (j, pt) in live_lms.iter().enumerate() {
+                    let ref_pt = &ref_lms[j];
+                    assert!(approx_eq(pt.0, ref_pt[0].as_f64().unwrap() as f32));
+                    assert!(approx_eq(pt.1, ref_pt[1].as_f64().unwrap() as f32));
                 }
-                (None, None) => {}
-                _ => panic!("{ctx} Landmark presence mismatch (One has landmarks, one doesn't)",),
+            }
+
+            // D. Check Gender & Age
+            if let Some(live_ga) = &live_face.gender_age {
+                let ref_ga = &ref_face["gender_age"];
+
+                // Compare Gender (Enum vs String/Int)
+                let ref_gender_str = ref_ga["gender"].as_str().unwrap();
+                let live_gender_str = format!("{:?}", live_ga.gender);
+                assert_eq!(live_gender_str, ref_gender_str);
+
+                // Compare Age
+                let ref_age = ref_ga["age"].as_u64().unwrap() as u8;
+                assert_eq!(live_ga.age, ref_age);
+            }
+
+            // E. Check Embedding Consistency
+            if let Some(live_emb) = &live_face.embedding {
+                let ref_emb = ref_face["embedding"].as_array().unwrap();
+                assert_eq!(live_emb.len(), ref_emb.len());
+
+                // Check every dimension (usually 512)
+                for (dim, val) in live_emb.iter().enumerate() {
+                    let ref_val = ref_emb[dim].as_f64().unwrap() as f32;
+                    assert!(
+                        approx_eq(*val, ref_val),
+                        "Embedding dimension {} mismatch in {} for face {}",
+                        dim,
+                        filename,
+                        i
+                    );
+                }
             }
         }
+        println!("Verified consistency for {}", filename);
     }
+
     Ok(())
 }
