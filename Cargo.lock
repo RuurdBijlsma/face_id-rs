@@ -733,6 +733,7 @@ dependencies = [
 name = "face_id"
 version = "0.1.1"
 dependencies = [
+ "ab_glyph",
  "bon",
  "color-eyre",
  "criterion",
