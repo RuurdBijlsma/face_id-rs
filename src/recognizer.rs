@@ -2,7 +2,7 @@ use crate::error::FaceIdError;
 use crate::model_manager::{HfModel, get_hf_model};
 use bon::bon;
 use image::{ImageBuffer, Rgb};
-use ndarray::Array4;
+use ndarray::{s, Array2, Array4, Axis};
 use ort::ep::ExecutionProviderDispatch;
 use ort::session::Session;
 use ort::value::Value;
@@ -57,29 +57,18 @@ impl ArcFaceEmbedder {
         let outputs = self
             .session
             .run(ort::inputs![&self.input_name => input_value])?;
-        let mut output_tensor = outputs[0].try_extract_array::<f32>()?.to_owned();
 
-        // --- Vectorized L2 Normalization ---
+        let mut output_tensor = outputs[0]
+            .try_extract_array::<f32>()?
+            .to_owned()
+            .into_dimensionality::<ndarray::Ix2>()?;
+        Self::l2_normalize_batch(&mut output_tensor);
 
-        // 1. Compute square of every element
-        // 2. Sum along Axis 1 (the 512-d embedding axis) to get squared norms [N, 1]
-        let sq_sums = (&output_tensor * &output_tensor)
-            .sum_axis(ndarray::Axis(1))
-            .insert_axis(ndarray::Axis(1)); // Reshape from [N] to [N, 1] for broadcasting
-
-        // 3. Compute sqrt(sum) with an epsilon to avoid division by zero
-        let norms = sq_sums.mapv(|x| x.max(1e-12).sqrt());
-
-        // 4. Divide the whole matrix by the norms (Broadcasting)
-        output_tensor /= &norms;
-
-        // --- Convert to Vec<Vec<f32>> ---
         let batch_size = output_tensor.shape()[0];
         let mut results = Vec::with_capacity(batch_size);
 
         for i in 0..batch_size {
-            // Since we already normalized the whole matrix, we just copy the rows
-            results.push(output_tensor.slice(ndarray::s![i, ..]).to_vec());
+            results.push(output_tensor.slice(s![i, ..]).to_vec());
         }
 
         Ok(results)
@@ -104,7 +93,7 @@ impl ArcFaceEmbedder {
 
             let raw = img.as_raw();
             // Get a mutable view of the specific slice in the 4D array for this image
-            let mut view = array.slice_mut(ndarray::s![batch_idx, .., .., ..]);
+            let mut view = array.slice_mut(s![batch_idx, .., .., ..]);
 
             // Split into R, G, B planes within this batch slice
             let (r_plane, rest) = view
@@ -142,9 +131,20 @@ impl ArcFaceEmbedder {
         self.create_input_tensor_batch(std::slice::from_ref(img))
     }
 
+    /// Performs vectorized L2 normalization on a 2D array of embeddings [N, Dim] in-place.
+    pub fn l2_normalize_batch(embeddings: &mut Array2<f32>) {
+        let view = embeddings.view();
+        let sq_sums = (&view * &view).sum_axis(Axis(1));
+        let inv_norms = sq_sums
+            .mapv(|x| 1.0 / x.max(1e-12).sqrt())
+            .insert_axis(Axis(1));
+        *embeddings *= &inv_norms;
+    }
+
+    /// Normalizes a single vector.
     pub fn l2_normalize(vec: &mut [f32]) {
         let norm = vec.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if norm > 1e-6 {
+        if norm > 1e-12 {
             let inv_norm = 1.0 / norm;
             for x in vec.iter_mut() {
                 *x *= inv_norm;

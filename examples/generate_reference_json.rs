@@ -16,8 +16,6 @@ fn main() -> Result<()> {
     let model_path = "assets/models/34g_gnkps.onnx";
     let img_dir = "assets/img";
     let output_json = "assets/reference_output/test_data.json";
-
-    // Ensure the output directory exists
     if let Some(parent) = Path::new(output_json).parent() {
         fs::create_dir_all(parent)?;
     }
@@ -31,24 +29,11 @@ fn main() -> Result<()> {
         let entry = entry?;
         let path = entry.path();
 
-        // Filter for image files
-        let extension = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        if !["jpg", "jpeg", "png"].contains(&extension.as_str()) {
-            continue;
-        }
-
         let filename = path.file_name().unwrap().to_string_lossy().into_owned();
         println!("Processing {}...", filename);
 
-        // 1. Load image using the 'image' crate
         let img = image::open(&path)?;
 
-        // 2. Run detection
         let faces = detector.detect(&img)?;
         println!("  -> Found {} faces", faces.len());
 

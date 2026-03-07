@@ -64,34 +64,22 @@ impl GenderAgeEstimator {
         img: &DynamicImage,
         bbox: &BoundingBox,
     ) -> Result<GenderAge, FaceIdError> {
-        // 1. Align and Crop (Square 96x96)
         let cropped_face = self.align_crop(img, bbox, 96);
-
-        // 2. Preprocess (NCHW + Normalization)
         let input_tensor = self.create_input_tensor(&cropped_face)?;
         let input_value = Value::from_array(input_tensor)?;
-
-        // 3. Run Inference
         let outputs = self
             .session
             .run(ort::inputs![&self.input_name => input_value])?;
         let output_tensor = outputs[0].try_extract_array::<f32>()?;
-
-        // 4. Post-process
-        // Output is typically [1, 3] -> [prob_female, prob_male, age_scaled]
         let prob_female = output_tensor[[0, 0]];
         let prob_male = output_tensor[[0, 1]];
         let age_raw = output_tensor[[0, 2]];
-
         let gender = if prob_male > prob_female {
             Gender::Male
         } else {
             Gender::Female
         };
-
-        // Age is regressed and needs to be multiplied by 100
         let age = (age_raw * 100.0).round().max(0.0).min(100.0) as u8;
-
         Ok(GenderAge { gender, age })
     }
 

@@ -33,8 +33,7 @@ async fn main() -> Result<()> {
         if !output_dir.exists() {
             fs::create_dir_all(&output_dir)?;
         }
-
-        // Initialize detector
+        
         let mut detector = ScrfdDetector::from_hf()
             .model(HfModel {
                 id: model_id.to_owned(),
@@ -43,7 +42,6 @@ async fn main() -> Result<()> {
             .build()
             .await?;
 
-        // Iterate over files in the image directory
         for img_entry in fs::read_dir(img_dir)? {
             let img_entry = img_entry?;
             let path = img_entry.path();

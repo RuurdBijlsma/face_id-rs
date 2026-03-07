@@ -15,7 +15,6 @@ async fn main() -> Result<()> {
     let img_dir = "assets/img";
     let output_dir = Path::new("output_previews/gender_age");
 
-    // 2. Initialize Models
     println!("Loading models...");
     let mut detector = ScrfdDetector::from_hf().build().await?;
     let mut estimator = GenderAgeEstimator::from_hf().build().await?;
@@ -29,7 +28,6 @@ async fn main() -> Result<()> {
 
     println!("Processing images in {}...", img_dir);
 
-    // 3. Process Images
     for entry in fs::read_dir(img_dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -40,12 +38,10 @@ async fn main() -> Result<()> {
         let img = image::open(&path)?;
         let mut output_img: RgbImage = img.to_rgb8();
 
-        // A. Detect Faces
         let faces = detector.detect(&img)?;
         println!("  Found {} face(s)", faces.len());
 
         for (i, face) in faces.iter().enumerate() {
-            // B. Estimate Gender and Age
             let result = estimator.estimate(&img, &face.bbox)?;
 
             let gender_str = match result.gender {
@@ -58,23 +54,19 @@ async fn main() -> Result<()> {
                 i, result.gender, result.age
             );
 
-            // C. Draw Results
             let b = face.bbox;
             let x = b.x1.max(0.0) as i32;
             let y = b.y1.max(0.0) as i32;
             let w = b.width().max(0.0) as u32;
             let h = b.height().max(0.0) as u32;
 
-            // Color code: Blue for Male, Pink/Red for Female
             let color = match result.gender {
                 Gender::Male => Rgb([0, 150, 255]),
                 Gender::Female => Rgb([255, 105, 180]),
             };
 
-            // Draw bounding box
             draw_hollow_rect_mut(&mut output_img, Rect::at(x, y).of_size(w, h), color);
 
-            // Draw Label: "M, 25"
             let label = format!("{}, {}", gender_str, result.age);
             let scale = PxScale::from(20.0);
             draw_text_mut(
@@ -88,7 +80,6 @@ async fn main() -> Result<()> {
             );
         }
 
-        // D. Save output
         let out_path = output_dir.join(format!("attr_{}", filename));
         output_img.save(&out_path)?;
     }

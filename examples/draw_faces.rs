@@ -13,7 +13,6 @@ fn main() -> Result<()> {
     let img_dir = "assets/img";
     let base_output_dir = "output_previews/draw_faces";
 
-    // Iterate over all models
     for model_entry in fs::read_dir(models_dir)? {
         let model_entry = model_entry?;
         let model_path = model_entry.path();
@@ -27,11 +26,8 @@ fn main() -> Result<()> {
         if !output_dir.exists() {
             fs::create_dir_all(&output_dir)?;
         }
-
-        // Initialize detector
         let mut detector = ScrfdDetector::builder(&model_path).build()?;
-
-        // Iterate over files in the image directory
+        
         for img_entry in fs::read_dir(img_dir)? {
             let img_entry = img_entry?;
             let path = img_entry.path();

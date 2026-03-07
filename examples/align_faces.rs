@@ -10,16 +10,10 @@ async fn main() -> Result<()> {
 
     let img_dir = "assets/img";
     let output_base = "output_previews/aligned_faces";
-
-    // 1. Initialize detector
     let mut detector = ScrfdDetector::from_hf().build().await?;
-
-    // 2. Prepare output directory
     if !Path::new(output_base).exists() {
         fs::create_dir_all(output_base)?;
     }
-
-    // 3. Process images
     for entry in fs::read_dir(img_dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -61,7 +55,6 @@ async fn main() -> Result<()> {
                     continue;
                 }
 
-                // Convert Vec to fixed array [ (f32, f32); 5 ] required by norm_crop
                 let lms_array: [(f32, f32); 5] = [
                     landmarks[0],
                     landmarks[1],
@@ -70,11 +63,8 @@ async fn main() -> Result<()> {
                     landmarks[4],
                 ];
 
-                // 4. Perform Face Alignment
                 // 112 is the standard size for ArcFace/InsightFace models
                 let aligned_img = norm_crop(&img, &lms_array, 112);
-
-                // 5. Save the result
                 let out_name = format!("{}_face_{}.png", filename, i);
                 let out_path = Path::new(output_base).join(out_name);
                 aligned_img.save(&out_path)?;

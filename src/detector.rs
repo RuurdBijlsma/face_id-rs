@@ -1,5 +1,5 @@
 use crate::error::FaceIdError;
-use crate::model_manager::{get_hf_model, HfModel};
+use crate::model_manager::{HfModel, get_hf_model};
 use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use ndarray::{Array2, Array4, Ix2, s};
@@ -388,8 +388,10 @@ impl ScrfdDetector {
         ))
     }
 
-    fn perform_non_maximum_suppression(mut faces: Vec<DetectedFace>, iou_threshold: f32) -> Vec<DetectedFace> {
-        // Sort faces by score descending
+    fn perform_non_maximum_suppression(
+        mut faces: Vec<DetectedFace>,
+        iou_threshold: f32,
+    ) -> Vec<DetectedFace> {
         faces.sort_unstable_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)

@@ -4,7 +4,7 @@ use face_id::analyzer::FaceAnalyzer;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let analyzer = FaceAnalyzer::from_hf().build().await?;
 
-    let img = image::open("assets/img/crowd.jpg")?;
+    let img = image::open("assets/img/obamna.jpg")?;
     let results = analyzer.analyze(&img)?;
 
     for res in results {
