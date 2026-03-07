@@ -8,7 +8,7 @@
 //! ## Overview
 //!
 //! This crate provides a pipeline for facial analysis. It wraps several
-//! models (SCRFD for detection, ArcFace for recognition) and handles the
+//! models (SCRFD for detection, `ArcFace` for recognition) and handles the
 //! maths of face alignment and image preprocessing internally.
 //!
 //! ### The Pipeline
@@ -35,7 +35,7 @@
 //!     let img = image::open("assets/img/crowd.jpg")?;
 //!     let faces = analyzer.analyze(&img)?;
 //!
-//!     for face in faces {
+//!     for (i, face) in faces.iter().enumerate() {
 //!         println!("Face {i}");
 //!         println!("    Box: {:?}", &face.detection.bbox);
 //!         println!("    Score: {:?}", &face.detection.score); // Confidence score of detection
@@ -71,7 +71,7 @@
 //! ```
 //!
 //! ### Recognition and Alignment
-//! Recognition models like ArcFace require faces to be "aligned"—rotated and scaled so that
+//! Recognition models like `ArcFace` require faces to be "aligned"—rotated and scaled so that
 //! landmarks are in specific positions.
 //!
 //! ```rust
@@ -97,7 +97,7 @@
 //! ```rust,no_run
 //! use face_id::analyzer::FaceAnalyzer;
 //!
-//! fn main() -> anyhow::Result<()> {
+//! fn main() -> color_eyre::Result<()> {
 //!     let analyzer = FaceAnalyzer::builder(
 //!         "models/det.onnx", // Detector
 //!         "models/rec.onnx", // Embedder (Recognition)
@@ -119,7 +119,7 @@
 //! use face_id::model_manager::HfModel;
 //!
 //! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
+//! async fn main() -> color_eyre::Result<()> {
 //!     let analyzer = FaceAnalyzer::from_hf()
 //!         // Specify a smaller detector model than the default:
 //!         // > `embedder_model` and `gender_age_model` can also be specified in the builder.
