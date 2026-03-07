@@ -2,7 +2,7 @@
 
 Face detection & recognition crate.
 
-![img.png](.github/readme-img.png)
+![img.png](.github/readme_img.png)
 
 ## Face detection
 

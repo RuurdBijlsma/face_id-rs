@@ -32,9 +32,15 @@ impl FaceAnalyzer {
         #[builder(default = HfModel::default_detector())] detector_model: HfModel,
         #[builder(default = HfModel::default_embedder())] embedder_model: HfModel,
         #[builder(default = HfModel::default_gender_age())] gender_age_model: HfModel,
+        #[builder(default = (640, 640))] detector_input_size: (u32, u32),
+        #[builder(default = 0.5)] detector_score_threshold: f32,
+        #[builder(default = 0.4)] detector_iou_threshold: f32,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
     ) -> Result<Self, FaceIdError> {
         let detector = ScrfdDetector::from_hf()
+            .input_size(detector_input_size)
+            .score_threshold(detector_score_threshold)
+            .iou_threshold(detector_iou_threshold)
             .model(detector_model)
             .with_execution_providers(with_execution_providers)
             .build()
@@ -63,9 +69,15 @@ impl FaceAnalyzer {
         #[builder(start_fn)] det_model: impl AsRef<Path>,
         #[builder(start_fn)] rec_model: impl AsRef<Path>,
         #[builder(start_fn)] attr_model: impl AsRef<Path>,
+        #[builder(default = (640, 640))] detector_input_size: (u32, u32),
+        #[builder(default = 0.5)] detector_score_threshold: f32,
+        #[builder(default = 0.4)] detector_iou_threshold: f32,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
     ) -> Result<Self, FaceIdError> {
         let detector = ScrfdDetector::builder(det_model)
+            .input_size(detector_input_size)
+            .score_threshold(detector_score_threshold)
+            .iou_threshold(detector_iou_threshold)
             .with_execution_providers(with_execution_providers)
             .build()?;
 
