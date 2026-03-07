@@ -13,12 +13,12 @@ async fn main() -> Result<()> {
 
     let model_id = "RuteNL/SCRFD-face-detection-ONNX";
     let model_filenames = &[
-        "1g.onnx",
-        "2.5g_bnkps.onnx",
-        "10g_bnkps.onnx",
-        "34g.onnx",
+        // "1g.onnx",
+        // "2.5g_bnkps.onnx",
+        // "10g_bnkps.onnx",
+        // "34g.onnx",
         "34g_gnkps.onnx",
-        "500m.onnx",
+        // "500m.onnx",
     ];
 
     let img_dir = "assets/img";

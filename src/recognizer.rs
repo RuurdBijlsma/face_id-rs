@@ -34,6 +34,7 @@ impl ArcFaceEmbedder {
         let session = Session::builder()?
             .with_execution_providers(with_execution_providers)?
             .commit_from_file(model_path)?;
+        dbg!(&session);
 
         let input_name = session.inputs()[0].name().to_string();
 
