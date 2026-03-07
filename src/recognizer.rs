@@ -1,27 +1,26 @@
 use crate::error::FaceIdError;
-use crate::model_manager::get_hf_model;
+use crate::model_manager::{get_hf_model, HfModel};
 use bon::bon;
 use image::{ImageBuffer, Rgb};
-use ndarray::{Array4};
+use ndarray::Array4;
 use ort::ep::ExecutionProviderDispatch;
 use ort::session::Session;
 use ort::value::Value;
 use std::path::Path;
 
-pub struct ArcFaceRecognizer {
+pub struct ArcFaceEmbedder {
     pub session: Session,
     pub input_name: String,
 }
 
 #[bon]
-impl ArcFaceRecognizer {
+impl ArcFaceEmbedder {
     #[builder(finish_fn = build)]
     pub async fn from_hf(
-        #[builder(start_fn)] model_id: &str,
-        #[builder(start_fn)] model_filename: &str,
+        #[builder(default = HfModel::default_embedder())] model: HfModel,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
     ) -> Result<Self, FaceIdError> {
-        let model_path = get_hf_model(model_id, model_filename).await?;
+        let model_path = get_hf_model(model).await?;
         Self::builder(model_path)
             .with_execution_providers(with_execution_providers)
             .build()
@@ -53,7 +52,9 @@ impl ArcFaceRecognizer {
         let input_value = Value::from_array(input_tensor)?;
 
         // Fixed: removed the '?' from inside the run() call
-        let outputs = self.session.run(ort::inputs![&self.input_name => input_value])?;
+        let outputs = self
+            .session
+            .run(ort::inputs![&self.input_name => input_value])?;
 
         // Extract the first output (the embedding)
         let output_tensor = outputs[0].try_extract_array::<f32>()?;
@@ -74,7 +75,8 @@ impl ArcFaceRecognizer {
         let (w, h) = img.dimensions();
         if w != 112 || h != 112 {
             return Err(FaceIdError::InvalidModel(format!(
-                "ArcFace requires 112x112 input, got {}x{}", w, h
+                "ArcFace requires 112x112 input, got {}x{}",
+                w, h
             )));
         }
 

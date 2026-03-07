@@ -8,23 +8,16 @@ use std::path::Path;
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let model_id = "RuteNL/SCRFD-face-detection-ONNX";
-    // Note: We must use a model that supports keypoints (kps) for alignment.
-    let model_filename = "34g_gnkps.onnx";
     let img_dir = "assets/img";
     let output_base = "output_previews/aligned_faces";
 
     // 1. Initialize detector
-    let mut detector = ScrfdDetector::from_hf(model_id, model_filename)
-        .build()
-        .await?;
+    let mut detector = ScrfdDetector::from_hf().build().await?;
 
     // 2. Prepare output directory
     if !Path::new(output_base).exists() {
         fs::create_dir_all(output_base)?;
     }
-
-    println!("Using model: {}", model_filename);
 
     // 3. Process images
     for entry in fs::read_dir(img_dir)? {

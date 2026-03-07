@@ -1,7 +1,7 @@
 use color_eyre::eyre::Result;
 use face_id::detector::ScrfdDetector;
 use face_id::face_align::norm_crop;
-use face_id::recognizer::ArcFaceRecognizer;
+use face_id::recognizer::ArcFaceEmbedder;
 use std::fs;
 
 #[tokio::main]
@@ -9,25 +9,12 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
 
     // 1. Configuration
-    // We use a detection model that supports keypoints (kps) for alignment
-    let det_model_id = "RuteNL/SCRFD-face-detection-ONNX";
-    let det_model_file = "34g_gnkps.onnx";
-
-    // We use an ArcFace model for recognition (embeddings)
-    // Note: Ensure this model is available at the specified HF repo
-    let rec_model_id = "public-data/insightface";
-    let rec_model_file = "models/buffalo_l/w600k_r50.onnx";
     let img_dir = "assets/img";
 
     // 2. Initialize Detector and Recognizer
     println!("Loading models from Hugging Face...");
-    let mut detector = ScrfdDetector::from_hf(det_model_id, det_model_file)
-        .build()
-        .await?;
-
-    let mut recognizer = ArcFaceRecognizer::from_hf(rec_model_id, rec_model_file)
-        .build()
-        .await?;
+    let mut detector = ScrfdDetector::from_hf().build().await?;
+    let mut recognizer = ArcFaceEmbedder::from_hf().build().await?;
 
     println!("Models loaded successfully.");
 

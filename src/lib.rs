@@ -7,7 +7,8 @@
 
 pub mod detector;
 pub mod error;
-mod model_manager;
+pub mod model_manager;
 pub mod face_align;
 pub mod recognizer;
 pub mod gender_age;
+pub mod analyzer;

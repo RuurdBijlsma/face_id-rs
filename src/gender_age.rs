@@ -1,6 +1,6 @@
-use crate::detector::FaceBBox;
+use crate::detector::BoundingBox;
 use crate::error::FaceIdError;
-use crate::model_manager::get_hf_model;
+use crate::model_manager::{get_hf_model, HfModel};
 use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use ndarray::Array4;
@@ -32,11 +32,10 @@ pub struct GenderAgeEstimator {
 impl GenderAgeEstimator {
     #[builder(finish_fn = build)]
     pub async fn from_hf(
-        #[builder(start_fn)] model_id: &str,
-        #[builder(start_fn)] model_filename: &str,
+        #[builder(default = HfModel::default_gender_age())] model: HfModel,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
     ) -> Result<Self, FaceIdError> {
-        let model_path = get_hf_model(model_id, model_filename).await?;
+        let model_path = get_hf_model(model).await?;
         Self::builder(model_path)
             .with_execution_providers(with_execution_providers)
             .build()
@@ -63,7 +62,7 @@ impl GenderAgeEstimator {
     pub fn estimate(
         &mut self,
         img: &DynamicImage,
-        bbox: &FaceBBox,
+        bbox: &BoundingBox,
     ) -> Result<GenderAge, FaceIdError> {
         // 1. Align and Crop (Square 96x96)
         let cropped_face = self.align_crop(img, bbox, 96);
@@ -101,7 +100,7 @@ impl GenderAgeEstimator {
     fn align_crop(
         &self,
         img: &DynamicImage,
-        bbox: &FaceBBox,
+        bbox: &BoundingBox,
         output_size: u32,
     ) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
         let (img_w, img_h) = img.dimensions();

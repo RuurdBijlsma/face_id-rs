@@ -1,3 +1,4 @@
+use ab_glyph::{FontRef, PxScale};
 use color_eyre::eyre::Result;
 use face_id::detector::ScrfdDetector;
 use face_id::gender_age::{Gender, GenderAgeEstimator};
@@ -6,32 +7,18 @@ use imageproc::drawing::{draw_hollow_rect_mut, draw_text_mut};
 use imageproc::rect::Rect;
 use std::fs;
 use std::path::Path;
-use ab_glyph::{FontRef, PxScale};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
-
-    // 1. Configuration
-    let det_model_id = "RuteNL/SCRFD-face-detection-ONNX";
-    let det_model_file = "34g_gnkps.onnx";
-
-    // Standard InsightFace Buffalo_L gender/age model
-    let attr_model_id = "public-data/insightface";
-    let attr_model_file = "models/buffalo_l/genderage.onnx";
 
     let img_dir = "assets/img";
     let output_dir = Path::new("output_previews/gender_age");
 
     // 2. Initialize Models
     println!("Loading models...");
-    let mut detector = ScrfdDetector::from_hf(det_model_id, det_model_file)
-        .build()
-        .await?;
-
-    let mut estimator = GenderAgeEstimator::from_hf(attr_model_id, attr_model_file)
-        .build()
-        .await?;
+    let mut detector = ScrfdDetector::from_hf().build().await?;
+    let mut estimator = GenderAgeEstimator::from_hf().build().await?;
 
     if !output_dir.exists() {
         fs::create_dir_all(output_dir)?;
@@ -85,11 +72,7 @@ async fn main() -> Result<()> {
             };
 
             // Draw bounding box
-            draw_hollow_rect_mut(
-                &mut output_img,
-                Rect::at(x, y).of_size(w, h),
-                color,
-            );
+            draw_hollow_rect_mut(&mut output_img, Rect::at(x, y).of_size(w, h), color);
 
             // Draw Label: "M, 25"
             let label = format!("{}, {}", gender_str, result.age);

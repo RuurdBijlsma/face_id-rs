@@ -1,5 +1,5 @@
 use crate::error::FaceIdError;
-use crate::model_manager::get_hf_model;
+use crate::model_manager::{get_hf_model, HfModel};
 use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use ndarray::{Array2, Array4, Ix2, s};
@@ -13,21 +13,21 @@ use std::path::Path;
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DetectedFace {
-    pub bbox: FaceBBox,
+    pub bbox: BoundingBox,
     pub landmarks: Option<Vec<(f32, f32)>>,
     pub score: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct FaceBBox {
+pub struct BoundingBox {
     pub x1: f32,
     pub y1: f32,
     pub x2: f32,
     pub y2: f32,
 }
 
-impl FaceBBox {
+impl BoundingBox {
     #[must_use]
     pub fn width(&self) -> f32 {
         self.x2 - self.x1
@@ -78,14 +78,13 @@ pub struct ScrfdDetector {
 impl ScrfdDetector {
     #[builder(finish_fn=build)]
     pub async fn from_hf(
-        #[builder(start_fn)] model_id: &str,
-        #[builder(start_fn)] model_filename: &str,
+        #[builder(default = HfModel::default_detector())] model: HfModel,
         #[builder(default = (640, 640))] input_size: (u32, u32),
         #[builder(default = 0.5)] score_threshold: f32,
         #[builder(default = 0.4)] iou_threshold: f32,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
     ) -> Result<Self, FaceIdError> {
-        let model_path = get_hf_model(model_id, model_filename).await?;
+        let model_path = get_hf_model(model).await?;
         Self::builder(model_path)
             .input_size(input_size)
             .score_threshold(score_threshold)
@@ -376,7 +375,7 @@ impl ScrfdDetector {
                 }
 
                 candidate_faces.push(DetectedFace {
-                    bbox: FaceBBox { x1, y1, x2, y2 },
+                    bbox: BoundingBox { x1, y1, x2, y2 },
                     landmarks,
                     score,
                 });
@@ -427,7 +426,7 @@ impl ScrfdDetector {
         }
     }
 
-    fn compute_intersection_over_union(a: &FaceBBox, b: &FaceBBox) -> f32 {
+    fn compute_intersection_over_union(a: &BoundingBox, b: &BoundingBox) -> f32 {
         let x1 = a.x1.max(b.x1);
         let y1 = a.y1.max(b.y1);
         let x2 = a.x2.min(b.x2);

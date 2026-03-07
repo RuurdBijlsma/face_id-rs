@@ -1,5 +1,6 @@
 use color_eyre::eyre::Result;
 use face_id::detector::ScrfdDetector;
+use face_id::model_manager::HfModel;
 use image::{Rgb, RgbImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_hollow_rect_mut};
 use imageproc::rect::Rect;
@@ -34,7 +35,11 @@ async fn main() -> Result<()> {
         }
 
         // Initialize detector
-        let mut detector = ScrfdDetector::from_hf(model_id, model_filename)
+        let mut detector = ScrfdDetector::from_hf()
+            .model(HfModel {
+                id: model_id.to_owned(),
+                file: (*model_filename).to_owned(),
+            })
             .build()
             .await?;
 
