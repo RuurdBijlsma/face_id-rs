@@ -58,5 +58,5 @@ rknpu = ["ort/rknpu"]
 azure = ["ort/azure"]
 
 [[bench]]
-name = "face_detection"
+name = "face_id"
 harness = false

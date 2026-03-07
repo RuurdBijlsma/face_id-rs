@@ -120,7 +120,7 @@ impl ArcFaceEmbedder {
         let mut results = self.compute_embeddings_batch(std::slice::from_ref(aligned_img))?;
         results
             .pop()
-            .ok_or_else(|| FaceIdError::Ort("Recognizer failed to produce an embedding".into()))
+            .ok_or_else(|| FaceIdError::Ort("Embedder failed to produce an embedding".into()))
     }
 
     /// Preprocessing wrapper for a single image.

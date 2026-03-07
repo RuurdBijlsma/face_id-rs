@@ -30,7 +30,7 @@ This crate uses SCRDF face detection models. The following models are available:
   explicitly developed to fix issues with very large faces that the `bnkps` models exhibited. While they improve
   landmark quality on large or rotated faces, they might have slightly lower general recall than `bnkps`.
 
-## Face recognition
+## Face recognition (embeddings)
 
 Use ArcFace ... explain more here. it needs to get aligned faces where the mouth, nose, eyes are in exact spots in an
 112x112 image.

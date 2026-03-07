@@ -3,7 +3,7 @@ use crate::error::FaceIdError;
 use crate::face_align::norm_crop;
 use crate::gender_age::{GenderAge, GenderAgeEstimator};
 use crate::model_manager::HfModel;
-use crate::recognizer::ArcFaceEmbedder;
+use crate::embedder::ArcFaceEmbedder;
 use bon::bon;
 use image::DynamicImage;
 use ort::ep::ExecutionProviderDispatch;
@@ -18,10 +18,10 @@ pub struct FaceAnalysis {
     pub gender_age: Option<GenderAge>,
 }
 
-/// Performs detection, alignment, recognition, and gender/age estimation.
+/// Performs detection, alignment, embedding, and gender/age estimation.
 pub struct FaceAnalyzer {
     pub detector: Mutex<ScrfdDetector>,
-    pub recognizer: Mutex<ArcFaceEmbedder>,
+    pub embedder: Mutex<ArcFaceEmbedder>,
     pub gender_age: Mutex<GenderAgeEstimator>,
 }
 
@@ -45,7 +45,7 @@ impl FaceAnalyzer {
             .with_execution_providers(with_execution_providers)
             .build()
             .await?;
-        let recognizer = ArcFaceEmbedder::from_hf()
+        let embedder = ArcFaceEmbedder::from_hf()
             .model(embedder_model)
             .with_execution_providers(with_execution_providers)
             .build()
@@ -58,7 +58,7 @@ impl FaceAnalyzer {
 
         Ok(Self {
             detector: Mutex::new(detector),
-            recognizer: Mutex::new(recognizer),
+            embedder: Mutex::new(embedder),
             gender_age: Mutex::new(gender_age),
         })
     }
@@ -81,7 +81,7 @@ impl FaceAnalyzer {
             .with_execution_providers(with_execution_providers)
             .build()?;
 
-        let recognizer = ArcFaceEmbedder::builder(rec_model)
+        let embedder = ArcFaceEmbedder::builder(rec_model)
             .with_execution_providers(with_execution_providers)
             .build()?;
 
@@ -91,7 +91,7 @@ impl FaceAnalyzer {
 
         Ok(Self {
             detector: Mutex::new(detector),
-            recognizer: Mutex::new(recognizer),
+            embedder: Mutex::new(embedder),
             gender_age: Mutex::new(gender_age),
         })
     }
@@ -116,8 +116,8 @@ impl FaceAnalyzer {
             return Ok(vec![]);
         }
 
-        // Recognition: Alignment & Batch Inference
-        let (recog_crops, recog_indices): (Vec<_>, Vec<_>) = results
+        // Embedding: Alignment & Batch Inference
+        let (embed_crops, embed_indices): (Vec<_>, Vec<_>) = results
             .iter()
             .enumerate()
             .filter_map(|(idx, res)| {
@@ -129,13 +129,13 @@ impl FaceAnalyzer {
             })
             .unzip();
 
-        if !recog_crops.is_empty() {
+        if !embed_crops.is_empty() {
             let embeddings = self
-                .recognizer
+                .embedder
                 .lock()
-                .map_err(|_| FaceIdError::MutexPoisoned("Recognizer".into()))?
-                .compute_embeddings_batch(&recog_crops)?;
-            for (emb, original_idx) in embeddings.into_iter().zip(recog_indices) {
+                .map_err(|_| FaceIdError::MutexPoisoned("Embedder".into()))?
+                .compute_embeddings_batch(&embed_crops)?;
+            for (emb, original_idx) in embeddings.into_iter().zip(embed_indices) {
                 results[original_idx].embedding = Some(emb);
             }
         }

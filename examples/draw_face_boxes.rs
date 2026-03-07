@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
     }
 
     // 2. Initialize the Comprehensive Analyzer from Hugging Face
-    println!("🚀 Loading models from Hugging Face (Detector, Recognizer, Gender/Age)...");
+    println!("🚀 Loading models from Hugging Face (Detector, Embedder, Gender/Age)...");
     let analyzer = FaceAnalyzer::from_hf().build().await?;
 
     // 3. Load font for drawing text labels
@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
         let img = image::open(&path)?;
         let mut output_img: RgbImage = img.to_rgb8();
 
-        // RUN PIPELINE: Detection -> Alignment -> Recognition -> Attributes
+        // RUN PIPELINE: Detection -> Alignment -> Embedder -> Attributes
         let analysis_results = analyzer.analyze(&img)?;
         println!("  ✅ Found {} face(s)", analysis_results.len());
 
