@@ -2,7 +2,7 @@
 name = "face_id"
 version = "0.2.1"
 edition = "2024"
-exclude = ["assets", ".github", "output_previews"]
+exclude = ["assets", ".github", "output_previews", "justfile"]
 description = "Face detection (bounding boxes, eyes/nose/mouth markers), and facial recognition (embeddings)."
 repository = "https://github.com/RuurdBijlsma/face_id-rs"
 homepage = "https://github.com/RuurdBijlsma/face_id-rs"
