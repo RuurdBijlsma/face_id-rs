@@ -10,27 +10,19 @@ fn approx_eq(a: f32, b: f32) -> bool {
 
 #[tokio::test]
 async fn test_analyzer_consistency_with_reference() -> color_eyre::Result<()> {
-    // 1. Setup
     let img_dir = "assets/img";
     let reference_path = "assets/reference_analysis.json";
-
-    // Ensure reference file exists
     if !Path::new(reference_path).exists() {
         panic!(
             "Reference file {} not found. Run the comprehensive_analysis example first.",
             reference_path
         );
     }
-
-    // 2. Load Reference Data
     let ref_file = fs::File::open(reference_path)?;
     let reference_data: serde_json::Value = serde_json::from_reader(ref_file)?;
     let reference_list = reference_data.as_array().expect("JSON should be an array");
-
-    // 3. Initialize Analyzer
     let analyzer = FaceAnalyzer::from_hf().build().await?;
 
-    // 4. Run through images defined in the reference
     for ref_entry in reference_list {
         let filename = ref_entry["filename"].as_str().unwrap();
         let ref_results = ref_entry["results"].as_array().unwrap();
@@ -52,7 +44,7 @@ async fn test_analyzer_consistency_with_reference() -> color_eyre::Result<()> {
         for (i, live_face) in live_results.iter().enumerate() {
             let ref_face = &ref_results[i];
 
-            // A. Check Detection Score
+            // Check Detection Score
             let ref_score = ref_face["detection"]["score"].as_f64().unwrap() as f32;
             assert!(
                 approx_eq(live_face.detection.score, ref_score),
@@ -61,14 +53,14 @@ async fn test_analyzer_consistency_with_reference() -> color_eyre::Result<()> {
                 i
             );
 
-            // B. Check Bounding Box
+            // Check Bounding Box
             let ref_bbox = &ref_face["detection"]["bbox"];
             assert!(approx_eq(live_face.detection.bbox.x1, ref_bbox["x1"].as_f64().unwrap() as f32));
             assert!(approx_eq(live_face.detection.bbox.y1, ref_bbox["y1"].as_f64().unwrap() as f32));
             assert!(approx_eq(live_face.detection.bbox.x2, ref_bbox["x2"].as_f64().unwrap() as f32));
             assert!(approx_eq(live_face.detection.bbox.y2, ref_bbox["y2"].as_f64().unwrap() as f32));
 
-            // C. Check Landmarks (if present)
+            // Check Landmarks (if present)
             if let Some(live_lms) = &live_face.detection.landmarks {
                 let ref_lms = ref_face["detection"]["landmarks"].as_array().unwrap();
                 for (j, pt) in live_lms.iter().enumerate() {
@@ -78,7 +70,7 @@ async fn test_analyzer_consistency_with_reference() -> color_eyre::Result<()> {
                 }
             }
 
-            // D. Check Gender & Age
+            // Check Gender & Age
             if let Some(live_ga) = &live_face.gender_age {
                 let ref_ga = &ref_face["gender_age"];
 
@@ -92,7 +84,7 @@ async fn test_analyzer_consistency_with_reference() -> color_eyre::Result<()> {
                 assert_eq!(live_ga.age, ref_age);
             }
 
-            // E. Check Embedding Consistency
+            // Check Embedding Consistency
             if let Some(live_emb) = &live_face.embedding {
                 let ref_emb = ref_face["embedding"].as_array().unwrap();
                 assert_eq!(live_emb.len(), ref_emb.len());
