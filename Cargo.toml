@@ -31,7 +31,7 @@ rayon = "1.10"
 tokio = { version = "1.50", features = ["rt", "macros"] }
 
 [features]
-default = ["download-binaries", "copy-dylibs", "hf-hub", "serde"]
+default = ["download-binaries", "copy-dylibs", "hf-hub", "serde", "cuda"]
 serde = ["dep:serde", "dep:serde_json"]
 download-binaries = ["ort/download-binaries"]
 copy-dylibs = ["ort/copy-dylibs"]
