@@ -1,92 +1,139 @@
 use criterion::{Criterion, criterion_group, criterion_main};
-use face_id::detector::ScrfdDetector;
-use ort::value::Value;
+use face_id::analyzer::FaceAnalyzer;
+use face_id::gender_age::GenderAgeEstimator;
+use image::DynamicImage;
+use rayon::prelude::*;
 use std::hint::black_box;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::runtime::Runtime;
 
-const MODEL_PATH: &str = "assets/models/34g_gnkps.onnx";
-const IMG_PATH: &str = "assets/img/da-vinki.jpg";
+const TEST_IMAGE_FILE: &str = "assets/img/crowd.jpg";
 
-/// Benchmarks the initialization of the detector (loading model + anchor generation)
-fn bench_init(c: &mut Criterion) {
-    c.bench_function("0_detector_new", |b| {
-        b.iter(|| {
-            let _ = ScrfdDetector::builder(black_box(MODEL_PATH))
-                .build()
-                .unwrap();
+fn block_on<F: Future>(f: F) -> F::Output {
+    Runtime::new().unwrap().block_on(f)
+}
+
+fn load_test_images() -> Vec<DynamicImage> {
+    let img_dir = "assets/img";
+    std::fs::read_dir(img_dir)
+        .expect("Image directory not found")
+        .filter_map(|entry| {
+            let path = entry.ok()?.path();
+            let ext = path.extension()?.to_str()?.to_lowercase();
+            if path.is_file() && (ext == "jpg" || ext == "jpeg" || ext == "png") {
+                Some(image::open(path).expect("Failed to load image"))
+            } else {
+                None
+            }
         })
+        .collect()
+}
+
+fn bench_construction(c: &mut Criterion) {
+    let mut group = c.benchmark_group("AnalyzeConstructor");
+    group.sample_size(20);
+    group.measurement_time(Duration::from_secs(8));
+
+    let rt = Runtime::new().unwrap();
+    group.bench_function("analyzer_construction", |b| {
+        b.iter(|| {
+            let _ =
+                black_box(rt.block_on(async { FaceAnalyzer::from_hf().build().await.unwrap() }));
+        });
     });
 }
 
-/// Benchmarks the full face detection process
-fn bench_full_detect(c: &mut Criterion) {
-    let mut detector = ScrfdDetector::builder(MODEL_PATH).build().unwrap();
-    let img = image::open(IMG_PATH).unwrap();
+fn bench_pipeline(c: &mut Criterion) {
+    let mut group = c.benchmark_group("FullAnalyze");
+    group.sample_size(20);
+    group.measurement_time(Duration::from_secs(17));
 
-    c.bench_function("full_pipeline_detect", |b| {
+    let analyzer = block_on(FaceAnalyzer::from_hf().build()).unwrap();
+    let image = &image::open(TEST_IMAGE_FILE).unwrap();
+
+    group.bench_function("analyze_full_pipeline", |b| {
         b.iter(|| {
-            let _ = detector.detect(black_box(&img)).unwrap();
-        })
+            let _ = black_box(analyzer.analyze(image).unwrap());
+        });
     });
 }
 
-/// Benchmarks individual components of the pipeline
-fn bench_pipeline_steps(c: &mut Criterion) {
-    let mut detector = ScrfdDetector::builder(MODEL_PATH)
-        .with_execution_providers(&[ort::ep::CUDA::default().build()])
-        .build()
-        .unwrap();
-    let img = image::open(IMG_PATH).unwrap();
-    let mut group = c.benchmark_group("pipeline_steps");
+fn bench_sub_components(c: &mut Criterion) {
+    let mut group = c.benchmark_group("SubComponents");
+    group.sample_size(40);
+    group.measurement_time(Duration::from_secs(6));
 
-    // 1. Preprocessing (Resize + Normalization + Tensor conversion)
-    group.bench_function("1_preprocessing", |b| {
+    let analyzer = block_on(FaceAnalyzer::from_hf().build()).unwrap();
+    let image = &image::open(TEST_IMAGE_FILE).unwrap();
+
+    group.bench_function("component_detection_only", |b| {
         b.iter(|| {
-            let (padded, _params) = detector.preprocess(black_box(&img));
-            let _tensor = detector.create_input_tensor(black_box(&padded)).unwrap();
-        })
+            let mut det = analyzer.detector.lock().expect("Mutex poisoned");
+            let _ = black_box(det.detect(image).unwrap());
+        });
     });
 
-    // Setup for Inference
-    let (padded, params) = detector.preprocess(&img);
-    let input_tensor = detector.create_input_tensor(&padded).unwrap();
-    let input_value = Value::from_array(input_tensor).unwrap();
+    // Setup for Alignment + Embedding/GA
+    let detection_results = analyzer.analyze(image).unwrap();
+    if detection_results.is_empty() {
+        return;
+    }
 
-    // 2. Inference (The actual neural network pass)
-    group.bench_function("2_inference", |b| {
+    let face = &detection_results[0];
+    let lms_array: [(f32, f32); 5] = face
+        .detection
+        .landmarks
+        .as_ref()
+        .expect("No landmarks found")
+        .as_slice()
+        .try_into()
+        .expect("Expected 5 landmarks");
+
+    // 2. Align + Embedding
+    group.bench_function("align_plus_embedding", |b| {
         b.iter(|| {
-            let _ = detector
-                .session
-                .run(ort::inputs![
-                    &*detector.input_name => input_value.clone()
-                ])
-                .unwrap();
-        })
+            let aligned = face_id::face_align::norm_crop(image, &lms_array, 112);
+            let mut emb = analyzer.embedder.lock().expect("Mutex poisoned");
+            let _ = black_box(emb.compute_embedding(&aligned).unwrap());
+        });
     });
 
-    // Setup for Post-processing
-    let outputs = detector
-        .session
-        .run(ort::inputs![
-            &*detector.input_name => input_value.clone()
-        ])
-        .unwrap();
-
-    // 3. Post-processing (BBox decoding + NMS)
-    group.bench_function("3_postprocessing", |b| {
+    // 3. Align + Gender/Age
+    group.bench_function("align_plus_gender_age", |b| {
         b.iter(|| {
-            let _ = ScrfdDetector::postprocess(
-                black_box(&outputs),
-                black_box(&params),
-                black_box(&detector.output_maps),
-                black_box(&detector.anchors),
-                black_box(&detector.config),
-            )
-            .unwrap();
-        })
+            let cropped = GenderAgeEstimator::align_crop(image, &face.detection.bbox, 96);
+            let mut ga = analyzer.gender_age.lock().expect("Mutex poisoned");
+            let _ = black_box(ga.estimate_batch(&[cropped]).unwrap());
+        });
     });
-
-    group.finish();
 }
 
-criterion_group!(benches, bench_init, bench_full_detect, bench_pipeline_steps);
+fn bench_parallel_processing(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ParallelProcessing");
+    group.sample_size(20);
+    group.measurement_time(Duration::from_secs(30));
+
+    let analyzer = Arc::new(block_on(FaceAnalyzer::from_hf().build()).unwrap());
+    let images = load_test_images();
+
+    group.bench_function("rayon_parallel_folder_analysis", |b| {
+        b.iter(|| {
+            let _results: Vec<_> = images
+                .par_iter()
+                .map(|img| analyzer.analyze(img).unwrap())
+                .collect();
+            black_box(_results);
+        });
+    });
+}
+
+criterion_group!(
+    name = benches;
+    config = Criterion::default()
+        .sample_size(25)
+        .measurement_time(Duration::from_secs(10))
+        .warm_up_time(Duration::from_secs(2));
+    targets = bench_construction, bench_pipeline, bench_sub_components, bench_parallel_processing
+);
 criterion_main!(benches);
