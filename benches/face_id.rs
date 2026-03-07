@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use face_id::analyzer::FaceAnalyzer;
 use face_id::gender_age::GenderAgeEstimator;
 use ort::ep::CUDA;
@@ -47,7 +47,12 @@ fn bench_pipeline(c: &mut Criterion) {
     group.sample_size(20);
     group.measurement_time(Duration::from_secs(17));
 
-    let analyzer = block_on(FaceAnalyzer::from_hf().with_execution_providers(&[CUDA::default().build().error_on_failure()]).build()).unwrap();
+    let analyzer = block_on(
+        FaceAnalyzer::from_hf()
+            .with_execution_providers(&[CUDA::default().build().error_on_failure()])
+            .build(),
+    )
+    .unwrap();
     let image = &image::open(TEST_IMAGE_FILE).unwrap();
 
     group.bench_function("analyze_full_pipeline", |b| {
@@ -62,18 +67,24 @@ fn bench_sub_components(c: &mut Criterion) {
     group.sample_size(40);
     group.measurement_time(Duration::from_secs(6));
 
-    let analyzer = block_on(FaceAnalyzer::from_hf().build()).unwrap();
-    let image = &image::open(TEST_IMAGE_FILE).unwrap();
+    let analyzer = block_on(
+        FaceAnalyzer::from_hf()
+            .with_execution_providers(&[CUDA::default().build().error_on_failure()])
+            .build(),
+    )
+    .unwrap();
+    let image = image::open(TEST_IMAGE_FILE).unwrap();
+    let rgb_image = image.to_rgb8();
 
     group.bench_function("component_detection_only", |b| {
         b.iter(|| {
             let mut det = analyzer.detector.lock().expect("Mutex poisoned");
-            let _ = black_box(det.detect(image).unwrap());
+            let _ = black_box(det.detect(&image).unwrap());
         });
     });
 
     // Setup for Alignment + Embedding/GA
-    let detection_results = analyzer.analyze(image).unwrap();
+    let detection_results = analyzer.analyze(&image).unwrap();
     if detection_results.is_empty() {
         return;
     }
@@ -91,7 +102,7 @@ fn bench_sub_components(c: &mut Criterion) {
     // 2. Align + Embedding
     group.bench_function("align_plus_embedding", |b| {
         b.iter(|| {
-            let aligned = face_id::face_align::norm_crop(image, &lms_array, 112);
+            let aligned = face_id::face_align::norm_crop(&rgb_image, &lms_array, 112);
             let mut emb = analyzer.embedder.lock().expect("Mutex poisoned");
             let _ = black_box(emb.compute_embedding(&aligned).unwrap());
         });
@@ -100,7 +111,7 @@ fn bench_sub_components(c: &mut Criterion) {
     // 3. Align + Gender/Age
     group.bench_function("align_plus_gender_age", |b| {
         b.iter(|| {
-            let cropped = GenderAgeEstimator::align_crop(image, &face.detection.bbox, 96);
+            let cropped = GenderAgeEstimator::align_crop(&rgb_image, &face.detection.bbox, 96);
             let mut ga = analyzer.gender_age.lock().expect("Mutex poisoned");
             let _ = black_box(ga.estimate_batch(&[cropped]).unwrap());
         });

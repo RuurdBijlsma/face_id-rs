@@ -81,7 +81,7 @@
 //! let mut embedder = ArcFaceEmbedder::from_hf().build().await?;
 //!
 //! // Align face using 5-point landmarks (from a detector)
-//! let aligned_crop = norm_crop(&img, &landmarks, 112);
+//! let aligned_crop = norm_crop(&img.to_rgb8(), &landmarks, 112);
 //!
 //! // Generate identity embedding
 //! let embedding = embedder.compute_embedding(&aligned_crop)?;

@@ -12,6 +12,7 @@ fn approx_eq(a: f32, b: f32) -> bool {
 
 #[tokio::test]
 async fn test_analyzer_consistency_with_reference() -> color_eyre::Result<()> {
+    color_eyre::install()?;
     let img_dir = "assets/img";
     let reference_path = "assets/reference_analysis.json";
     assert!(

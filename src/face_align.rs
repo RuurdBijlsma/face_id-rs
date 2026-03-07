@@ -1,6 +1,6 @@
 #![allow(clippy::similar_names, clippy::many_single_char_names)]
 
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
+use image::{ImageBuffer, Rgb};
 use nalgebra::{ArrayStorage, Matrix2, Matrix2x1, Matrix3, Matrix3x2};
 
 /// Canonical 5-point landmark positions for `ArcFace` at 112×112 resolution.
@@ -108,7 +108,7 @@ pub fn umeyama<const R: usize>(src: &[(f32, f32); R], dst: &[(f32, f32); R]) -> 
 /// A square `image_size × image_size` RGB crop aligned to the canonical face pose.
 #[must_use]
 pub fn norm_crop(
-    img: &DynamicImage,
+    img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
     landmarks: &[(f32, f32); 5],
     image_size: u32,
 ) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
@@ -136,7 +136,7 @@ fn scale_arcface_dst(image_size: u32) -> [(f32, f32); 5] {
 ///
 /// Uses inverse-mapping with bilinear interpolation (same as `OpenCV` `warpAffine`).
 fn warp_affine(
-    img: &DynamicImage,
+    img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
     m: &Matrix3x2<f32>,
     output_size: u32,
 ) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
@@ -166,7 +166,6 @@ fn warp_affine(
     let ity = inv[(1, 2)];
 
     let (orig_w, orig_h) = img.dimensions();
-    let rgb = img.to_rgb8();
     let mut output = ImageBuffer::new(output_size, output_size);
 
     // For every output pixel, find the corresponding source pixel and sample it.
@@ -176,7 +175,7 @@ fn warp_affine(
             let px_f = px as f32;
             let sx = ia * px_f + ib * py_f + itx;
             let sy = ic * px_f + id * py_f + ity;
-            output.put_pixel(px, py, bilinear_sample(&rgb, sx, sy, orig_w, orig_h));
+            output.put_pixel(px, py, bilinear_sample(img, sx, sy, orig_w, orig_h));
         }
     }
     output

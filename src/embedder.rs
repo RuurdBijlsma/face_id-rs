@@ -81,6 +81,11 @@ impl ArcFaceEmbedder {
         // Shape: [N, 3, 112, 112]
         let mut array = Array4::<f32>::zeros((batch_size, 3, 112, 112));
 
+        let data = array.as_slice_memory_order_mut().ok_or_else(|| {
+            FaceIdError::Ort("Failed to get mutable slice".into())
+        })?;
+
+        let channel_stride = 112 * 112;
         for (batch_idx, img) in imgs.iter().enumerate() {
             let (w, h) = img.dimensions();
             if w != 112 || h != 112 {
@@ -90,20 +95,12 @@ impl ArcFaceEmbedder {
             }
 
             let raw = img.as_raw();
-            // Get a mutable view of the specific slice in the 4D array for this image
-            let mut view = array.slice_mut(s![batch_idx, .., .., ..]);
+            let batch_offset = batch_idx * 3 * channel_stride;
 
-            // Split into R, G, B planes within this batch slice
-            let (r_plane, rest) = view
-                .as_slice_memory_order_mut()
-                .ok_or_else(|| FaceIdError::Ort("Failed to get mutable slice".into()))?
-                .split_at_mut(112 * 112);
-            let (g_plane, b_plane) = rest.split_at_mut(112 * 112);
-
-            for (i, pixel) in raw.chunks_exact(3).enumerate() {
-                r_plane[i] = (f32::from(pixel[0]) - 127.5) / 127.5;
-                g_plane[i] = (f32::from(pixel[1]) - 127.5) / 127.5;
-                b_plane[i] = (f32::from(pixel[2]) - 127.5) / 127.5;
+            for (i, chunk) in raw.chunks_exact(3).enumerate() {
+                data[batch_offset + i] = (f32::from(chunk[0]) - 127.5) / 127.5;
+                data[batch_offset + i + channel_stride] = (f32::from(chunk[1]) - 127.5) / 127.5;
+                data[batch_offset + i + 2 * channel_stride] = (f32::from(chunk[2]) - 127.5) / 127.5;
             }
         }
 
