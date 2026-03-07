@@ -51,7 +51,7 @@ impl ArcFaceEmbedder {
             return Ok(vec![]);
         }
 
-        let input_tensor = self.create_input_tensor_batch(aligned_imgs)?;
+        let input_tensor = Self::create_input_tensor_batch(aligned_imgs)?;
         let input_value = Value::from_array(input_tensor)?;
 
         let outputs = self
@@ -75,7 +75,6 @@ impl ArcFaceEmbedder {
     }
 
     fn create_input_tensor_batch(
-        &self,
         imgs: &[ImageBuffer<Rgb<u8>, Vec<u8>>],
     ) -> Result<Array4<f32>, FaceIdError> {
         let batch_size = imgs.len();
@@ -86,8 +85,7 @@ impl ArcFaceEmbedder {
             let (w, h) = img.dimensions();
             if w != 112 || h != 112 {
                 return Err(FaceIdError::InvalidModel(format!(
-                    "ArcFace requires 112x112 input, got {}x{}",
-                    w, h
+                    "ArcFace requires 112x112 input, got {w}x{h}"
                 )));
             }
 
@@ -125,10 +123,9 @@ impl ArcFaceEmbedder {
 
     /// Preprocessing wrapper for a single image.
     pub fn create_input_tensor(
-        &self,
         img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
     ) -> Result<Array4<f32>, FaceIdError> {
-        self.create_input_tensor_batch(std::slice::from_ref(img))
+        Self::create_input_tensor_batch(std::slice::from_ref(img))
     }
 
     /// Performs vectorized L2 normalization on a 2D array of embeddings [N, Dim] in-place.
@@ -154,6 +151,7 @@ impl ArcFaceEmbedder {
 
     /// Computes cosine similarity between two L2-normalized embeddings.
     /// Range: -1.0 to 1.0 (Higher is more similar).
+    #[must_use]
     pub fn compute_similarity(emb1: &[f32], emb2: &[f32]) -> f32 {
         emb1.iter().zip(emb2.iter()).map(|(a, b)| a * b).sum()
     }

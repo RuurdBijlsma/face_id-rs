@@ -138,7 +138,7 @@ impl ScrfdDetector {
         } else {
             let mut groups: std::collections::HashMap<i64, (String, String, String)> =
                 std::collections::HashMap::new();
-            for out in session.outputs().iter() {
+            for out in session.outputs() {
                 if let Some(shape) = out.dtype().tensor_shape() {
                     let n = if shape.len() > 1 {
                         shape[shape.len() - 2]
@@ -146,10 +146,9 @@ impl ScrfdDetector {
                         continue;
                     };
                     let last = shape[shape.len() - 1];
-                    let entry =
-                        groups
-                            .entry(n)
-                            .or_insert(("".to_string(), "".to_string(), "".to_string()));
+                    let entry = groups
+                        .entry(n)
+                        .or_insert_with(|| (String::new(), String::new(), String::new()));
                     if last == 1 || last == 2 {
                         entry.0 = out.name().to_string();
                     } else if last == 4 {
@@ -195,16 +194,14 @@ impl ScrfdDetector {
                 FaceIdError::InvalidModel(format!("Missing output: {}", first_map.score_name))
             })?;
 
-        let num_anchors = if let Some(shape) = score_output.dtype().tensor_shape() {
-            let h = (config.input_size.1 / first_map.stride as u32) as i64;
-            let w = (config.input_size.0 / first_map.stride as u32) as i64;
-
+        let num_anchors = score_output.dtype().tensor_shape().map_or(2, |shape| {
+            let h = i64::from(config.input_size.1 / first_map.stride as u32);
+            let w = i64::from(config.input_size.0 / first_map.stride as u32);
             let total_anchors = if shape.len() > 1 {
                 shape.iter().rev().nth(1).copied().unwrap_or(0)
             } else {
                 shape.iter().next().copied().unwrap_or(0)
             };
-
             if h * w == 0 {
                 2
             } else if total_anchors > 0 && total_anchors % (h * w) == 0 {
@@ -212,9 +209,7 @@ impl ScrfdDetector {
             } else {
                 2
             }
-        } else {
-            2
-        };
+        });
 
         let anchors = output_maps
             .iter()
@@ -359,8 +354,7 @@ impl ScrfdDetector {
                 let x2 = (dist[2].mul_add(stride_f, anchor_x) - params.x_offset) / params.ratio;
                 let y2 = (dist[3].mul_add(stride_f, anchor_y) - params.y_offset) / params.ratio;
 
-                let mut landmarks = None;
-                if let Some(ref kps_tensor) = kps {
+                let landmarks = kps.as_ref().map(|kps_tensor| {
                     let kps_dist = kps_tensor.slice(s![i, ..]);
                     let mut lms = Vec::with_capacity(5);
                     for j in 0..5 {
@@ -371,8 +365,8 @@ impl ScrfdDetector {
                             / params.ratio;
                         lms.push((lx, ly));
                     }
-                    landmarks = Some(lms);
-                }
+                    lms
+                });
 
                 candidate_faces.push(DetectedFace {
                     bbox: BoundingBox { x1, y1, x2, y2 },

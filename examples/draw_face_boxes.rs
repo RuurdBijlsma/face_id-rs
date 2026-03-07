@@ -22,7 +22,7 @@ async fn main() -> Result<()> {
     }
 
     // 2. Initialize the Comprehensive Analyzer from Hugging Face
-    println!("🚀 Loading models from Hugging Face (Detector, Embedder, Gender/Age)...");
+    println!("Loading models (Detector, Embedder, Gender/Age)...");
     let analyzer = FaceAnalyzer::from_hf().build().await?;
 
     // 3. Load font for drawing text labels
@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
     let mut all_results = Vec::new();
 
     // 4. Process all images in the directory
-    println!("📂 Processing images in: {}", img_dir);
+    println!("Processing images in: {}", img_dir);
     for entry in fs::read_dir(img_dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -47,14 +47,14 @@ async fn main() -> Result<()> {
         }
 
         let filename = path.file_name().unwrap().to_string_lossy().to_string();
-        println!("\n📸 Analyzing: {}", filename);
+        println!("\nAnalyzing: {}", filename);
 
         let img = image::open(&path)?;
         let mut output_img: RgbImage = img.to_rgb8();
 
         // RUN PIPELINE: Detection -> Alignment -> Embedder -> Attributes
         let analysis_results = analyzer.analyze(&img)?;
-        println!("  ✅ Found {} face(s)", analysis_results.len());
+        println!("  Found {} face(s)", analysis_results.len());
 
         for (i, face) in analysis_results.iter().enumerate() {
             let det = &face.detection;
@@ -141,9 +141,9 @@ async fn main() -> Result<()> {
     let file = fs::File::create(output_json_path)?;
     serde_json::to_writer_pretty(file, &all_results)?;
 
-    println!("\n✨ Process complete!");
-    println!("🖼️  Annotated images: {:?}", output_img_dir);
-    println!("📄 Reference JSON: {}", output_json_path);
+    println!("\nProcess complete!");
+    println!("Annotated images: {:?}", output_img_dir);
+    println!("Reference JSON: {}", output_json_path);
 
     Ok(())
 }

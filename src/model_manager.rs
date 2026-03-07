@@ -8,6 +8,7 @@ pub struct HfModel {
 }
 
 impl HfModel {
+    #[must_use] 
     pub fn default_detector() -> Self {
         Self {
             id: "RuteNL/SCRFD-face-detection-ONNX".to_owned(),
@@ -15,6 +16,7 @@ impl HfModel {
         }
     }
 
+    #[must_use] 
     pub fn default_embedder() -> Self {
         Self {
             id: "public-data/insightface".to_owned(),
@@ -22,6 +24,7 @@ impl HfModel {
         }
     }
 
+    #[must_use] 
     pub fn default_gender_age() -> Self {
         Self {
             id: "public-data/insightface".to_owned(),

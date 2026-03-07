@@ -1,7 +1,9 @@
+#![allow(clippy::similar_names, clippy::many_single_char_names)]
+
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use nalgebra::{ArrayStorage, Matrix2, Matrix2x1, Matrix3, Matrix3x2};
 
-/// Canonical 5-point landmark positions for ArcFace at 112×112 resolution.
+/// Canonical 5-point landmark positions for `ArcFace` at 112×112 resolution.
 pub const ARCFACE_DST_112: [(f32, f32); 5] = [
     (38.2946, 51.6963), // left eye
     (73.5318, 51.5014), // right eye
@@ -17,7 +19,7 @@ pub const ARCFACE_DST_112: [(f32, f32); 5] = [
 /// - Rows 0–1 contain the scaled rotation: `scale * R`
 /// - Row 2 contains the translation: `[tx, ty]`
 ///
-/// The equivalent 2×3 affine matrix `M` (as used by OpenCV's `warpAffine`) is:
+/// The equivalent 2×3 affine matrix `M` (as used by `OpenCV`'s `warpAffine`) is:
 /// ```text
 /// M = | row0[0]  row0[1]  row2[0] |
 ///     | row1[0]  row1[1]  row2[1] |
@@ -71,7 +73,7 @@ pub fn umeyama<const R: usize>(src: &[(f32, f32); R], dst: &[(f32, f32); R]) -> 
 
     // Scale: dot(d, singular_values) / Var(src)
     // Var(src) = (sum_x² + sum_y²) / R  — population variance of demeaned points
-    let d_dot_s = d[0] * s[0] + d[1] * s[1];
+    let d_dot_s = d[0].mul_add(s[0], d[1] * s[1]);
     let var_src = src_demean.remove_row(0).variance() + src_demean.remove_row(1).variance();
     let scale = d_dot_s / var_src;
 
@@ -91,7 +93,7 @@ pub fn umeyama<const R: usize>(src: &[(f32, f32); R], dst: &[(f32, f32); R]) -> 
     )
 }
 
-/// Align a face crop to the canonical ArcFace pose using the 5 SCRFD keypoints.
+/// Align a face crop to the canonical `ArcFace` pose using the 5 SCRFD keypoints.
 ///
 /// Applies the Umeyama similarity transform that maps the detected keypoints to the
 /// canonical [`ARCFACE_DST_112`] positions (scaled to `image_size`), then performs an
@@ -100,7 +102,7 @@ pub fn umeyama<const R: usize>(src: &[(f32, f32); R], dst: &[(f32, f32); R]) -> 
 /// # Parameters
 /// - `img` — original full image
 /// - `landmarks` — the 5 keypoints from SCRFD: `[left_eye, right_eye, nose, left_mouth, right_mouth]`
-/// - `image_size` — output square size in pixels (typically `112` for ArcFace, `128` for some variants)
+/// - `image_size` — output square size in pixels (typically `112` for `ArcFace`, `128` for some variants)
 ///
 /// # Returns
 /// A square `image_size × image_size` RGB crop aligned to the canonical face pose.
@@ -115,25 +117,24 @@ pub fn norm_crop(
     warp_affine(img, &m, image_size)
 }
 
-/// Scale the canonical ArcFace destination points to a given `image_size`.
-/// ArcFace models supporting sizes divisible by 128 offset x by 8 pixels per the original paper.
+/// Scale the canonical `ArcFace` destination points to a given `image_size`.
+/// `ArcFace` models supporting sizes divisible by 128 offset x by 8 pixels per the original paper.
 fn scale_arcface_dst(image_size: u32) -> [(f32, f32); 5] {
     let ratio;
-    let diff_x;
-    if image_size % 112 == 0 {
+    let diff_x = if image_size.is_multiple_of(112) {
         ratio = image_size as f32 / 112.0;
-        diff_x = 0.0;
+        0.0
     } else {
         ratio = image_size as f32 / 128.0;
-        diff_x = 8.0 * ratio;
-    }
-    ARCFACE_DST_112.map(|(x, y)| (x * ratio + diff_x, y * ratio))
+        8.0 * ratio
+    };
+    ARCFACE_DST_112.map(|(x, y)| (x.mul_add(ratio, diff_x), y * ratio))
 }
 
 /// Apply the affine transform represented by `m` (a `Matrix3x2` from [`umeyama`]) to `img`,
 /// producing a square crop of `output_size × output_size` pixels.
 ///
-/// Uses inverse-mapping with bilinear interpolation (same as OpenCV `warpAffine`).
+/// Uses inverse-mapping with bilinear interpolation (same as `OpenCV` `warpAffine`).
 fn warp_affine(
     img: &DynamicImage,
     m: &Matrix3x2<f32>,
@@ -210,9 +211,9 @@ fn bilinear_sample(img: &ImageBuffer<Rgb<u8>, Vec<u8>>, x: f32, y: f32, w: u32, 
 
 #[inline]
 fn bilerp(c00: u8, c10: u8, c01: u8, c11: u8, fx: f32, fy: f32) -> u8 {
-    let top = c00 as f32 + (c10 as f32 - c00 as f32) * fx;
-    let bot = c01 as f32 + (c11 as f32 - c01 as f32) * fx;
-    (top + (bot - top) * fy) as u8
+    let top = (f32::from(c10) - f32::from(c00)).mul_add(fx, f32::from(c00));
+    let bot = (f32::from(c11) - f32::from(c01)).mul_add(fx, f32::from(c01));
+    (bot - top).mul_add(fy, top) as u8
 }
 
 #[cfg(test)]
@@ -251,11 +252,11 @@ mod tests {
         let dst: [(f32, f32); 5] = src.map(|(x, y)| (x * 2.0, y * 2.0));
         let m = umeyama(&src, &dst);
         // The rotation entries should encode scale ≈ 2
-        let scale = (m[(0, 0)].powi(2) + m[(1, 0)].powi(2)).sqrt();
+        let scale = m[(0, 0)].hypot(m[(1, 0)]);
         assert!((scale - 2.0).abs() < 1e-3, "scale: {scale}");
     }
 
-    /// The arcface_dst points aligned to themselves should produce the identity transform.
+    /// The `ARCFACE_DST_112` points aligned to themselves should produce the identity transform.
     #[test]
     fn estimate() {
         let result = umeyama(&ARCFACE_DST_112, &ARCFACE_DST_112);

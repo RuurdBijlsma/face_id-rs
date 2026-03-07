@@ -1,3 +1,4 @@
+#![allow(clippy::similar_names)]
 use crate::detector::BoundingBox;
 use crate::error::FaceIdError;
 use crate::model_manager::{HfModel, get_hf_model};
@@ -67,7 +68,7 @@ impl GenderAgeEstimator {
             return Ok(vec![]);
         }
 
-        let input_tensor = self.create_input_tensor_batch(face_imgs)?;
+        let input_tensor = Self::create_input_tensor_batch(face_imgs)?;
         let input_value = Value::from_array(input_tensor)?;
         let outputs = self
             .session
@@ -87,7 +88,7 @@ impl GenderAgeEstimator {
             } else {
                 Gender::Female
             };
-            let age = (age_raw * 100.0).round().max(0.0).min(100.0) as u8;
+            let age = (age_raw * 100.0).round().clamp(0.0, 100.0) as u8;
             results.push(GenderAge { gender, age });
         }
 
@@ -108,8 +109,9 @@ impl GenderAgeEstimator {
             .ok_or_else(|| FaceIdError::Ort("GenderAge failed to produce output".into()))
     }
 
-    /// InsightFace Attribute alignment: Creates a square crop based on the BBox
+    /// `InsightFace` Attribute alignment: Creates a square crop based on the `BBox`
     /// with a 1.5x expansion factor to include context.
+    #[must_use]
     pub fn align_crop(
         img: &DynamicImage,
         bbox: &BoundingBox,
@@ -135,8 +137,8 @@ impl GenderAgeEstimator {
         // Calculate the overlap between the desired crop and the actual image
         let src_x = x1.max(0) as u32;
         let src_y = y1.max(0) as u32;
-        let src_x2 = (x1 + side_u as i32).min(img_w as i32) as u32;
-        let src_y2 = (y1 + side_u as i32).min(img_h as i32) as u32;
+        let src_x2 = (x1 + side_u.cast_signed()).min(img_w.cast_signed()) as u32;
+        let src_y2 = (y1 + side_u.cast_signed()).min(img_h.cast_signed()) as u32;
 
         if src_x2 > src_x && src_y2 > src_y {
             let width = src_x2 - src_x;
@@ -145,10 +147,15 @@ impl GenderAgeEstimator {
             let sub_img = img.view(src_x, src_y, width, height);
 
             // Where to paste in the canvas
-            let dst_x = (src_x as i32 - x1) as u32;
-            let dst_y = (src_y as i32 - y1) as u32;
+            let dst_x = (src_x.cast_signed() - x1) as u32;
+            let dst_y = (src_y.cast_signed() - y1) as u32;
 
-            image::imageops::overlay(&mut canvas, &sub_img.to_image(), dst_x as i64, dst_y as i64);
+            image::imageops::overlay(
+                &mut canvas,
+                &sub_img.to_image(),
+                i64::from(dst_x),
+                i64::from(dst_y),
+            );
         }
 
         // Resize the padded square crop to the model input size (96x96)
@@ -163,7 +170,6 @@ impl GenderAgeEstimator {
     }
 
     fn create_input_tensor_batch(
-        &self,
         imgs: &[ImageBuffer<Rgb<u8>, Vec<u8>>],
     ) -> Result<Array4<f32>, FaceIdError> {
         let batch_size = imgs.len();
@@ -173,8 +179,7 @@ impl GenderAgeEstimator {
             let (w, h) = img.dimensions();
             if w != 96 || h != 96 {
                 return Err(FaceIdError::InvalidModel(format!(
-                    "GenderAge requires 96x96 input, got {}x{}",
-                    w, h
+                    "GenderAge requires 96x96 input, got {w}x{h}"
                 )));
             }
 
@@ -199,9 +204,8 @@ impl GenderAgeEstimator {
     }
 
     pub fn create_input_tensor(
-        &self,
         img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
     ) -> Result<Array4<f32>, FaceIdError> {
-        self.create_input_tensor_batch(std::slice::from_ref(img))
+        Self::create_input_tensor_batch(std::slice::from_ref(img))
     }
 }
