@@ -1,9 +1,9 @@
 use crate::detector::BoundingBox;
 use crate::error::FaceIdError;
-use crate::model_manager::{get_hf_model, HfModel};
+use crate::model_manager::{HfModel, get_hf_model};
 use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
-use ndarray::{s, Array4};
+use ndarray::{Array4, s};
 use ort::ep::ExecutionProviderDispatch;
 use ort::session::Session;
 use ort::value::Value;

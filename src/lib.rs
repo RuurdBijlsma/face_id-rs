@@ -5,10 +5,10 @@
     clippy::cast_precision_loss
 )]
 
+pub mod analyzer;
 pub mod detector;
 pub mod error;
-pub mod model_manager;
 pub mod face_align;
-pub mod recognizer;
 pub mod gender_age;
-pub mod analyzer;
+pub mod model_manager;
+pub mod recognizer;

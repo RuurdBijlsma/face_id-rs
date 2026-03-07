@@ -33,7 +33,7 @@ async fn main() -> Result<()> {
         if !output_dir.exists() {
             fs::create_dir_all(&output_dir)?;
         }
-        
+
         let mut detector = ScrfdDetector::from_hf()
             .model(HfModel {
                 id: model_id.to_owned(),

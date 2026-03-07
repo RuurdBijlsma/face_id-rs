@@ -16,7 +16,7 @@ fn main() -> Result<()> {
     for model_entry in fs::read_dir(models_dir)? {
         let model_entry = model_entry?;
         let model_path = model_entry.path();
-        
+
         let model_name = model_path.file_stem().unwrap().to_string_lossy();
         println!("\n==================================");
         println!("Testing model: {}", model_name);
@@ -27,7 +27,7 @@ fn main() -> Result<()> {
             fs::create_dir_all(&output_dir)?;
         }
         let mut detector = ScrfdDetector::builder(&model_path).build()?;
-        
+
         for img_entry in fs::read_dir(img_dir)? {
             let img_entry = img_entry?;
             let path = img_entry.path();
@@ -47,7 +47,7 @@ fn main() -> Result<()> {
 
             let img = image::open(&path)?;
 
-            let faces = detector.detect(&img) ?;
+            let faces = detector.detect(&img)?;
             println!("  -> Found {} faces", faces.len());
 
             let mut output_img: RgbImage = img.to_rgb8();
@@ -84,6 +84,9 @@ fn main() -> Result<()> {
         }
     }
 
-    println!("\nDone! Check the '{}' folder for results.", base_output_dir);
+    println!(
+        "\nDone! Check the '{}' folder for results.",
+        base_output_dir
+    );
     Ok(())
 }

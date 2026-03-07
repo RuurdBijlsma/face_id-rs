@@ -82,9 +82,12 @@ pub fn umeyama<const R: usize>(src: &[(f32, f32); R], dst: &[(f32, f32); R]) -> 
 
     let sr = t * scale;
     Matrix3x2::new(
-        sr.m11, sr.m12,
-        sr.m21, sr.m22,
-        translation[0], translation[1],
+        sr.m11,
+        sr.m12,
+        sr.m21,
+        sr.m22,
+        translation[0],
+        translation[1],
     )
 }
 
@@ -141,9 +144,15 @@ fn warp_affine(
     //   [x_dst, y_dst]ᵀ = M_2x3 * [x_src, y_src, 1]ᵀ
     // where M_2x3 = | row0 | row1 | with row2 = translation
     let mat = Matrix3::new(
-        m[(0, 0)], m[(0, 1)], m[(2, 0)],
-        m[(1, 0)], m[(1, 1)], m[(2, 1)],
-        0.0,       0.0,       1.0,
+        m[(0, 0)],
+        m[(0, 1)],
+        m[(2, 0)],
+        m[(1, 0)],
+        m[(1, 1)],
+        m[(2, 1)],
+        0.0,
+        0.0,
+        1.0,
     );
 
     // Invert: M_inv maps canonical coords → original image coords (inverse mapping for the warp)
@@ -175,13 +184,7 @@ fn warp_affine(
 /// Sample a pixel from `img` at floating-point coordinates `(x, y)` using bilinear interpolation.
 /// Returns black for out-of-bounds coordinates.
 #[inline]
-fn bilinear_sample(
-    img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
-    x: f32,
-    y: f32,
-    w: u32,
-    h: u32,
-) -> Rgb<u8> {
+fn bilinear_sample(img: &ImageBuffer<Rgb<u8>, Vec<u8>>, x: f32, y: f32, w: u32, h: u32) -> Rgb<u8> {
     if x < 0.0 || y < 0.0 || x >= w as f32 || y >= h as f32 {
         return Rgb([0, 0, 0]);
     }

@@ -2,7 +2,7 @@ use crate::error::FaceIdError;
 use crate::model_manager::{HfModel, get_hf_model};
 use bon::bon;
 use image::{ImageBuffer, Rgb};
-use ndarray::{s, Array2, Array4, Axis};
+use ndarray::{Array2, Array4, Axis, s};
 use ort::ep::ExecutionProviderDispatch;
 use ort::session::Session;
 use ort::value::Value;

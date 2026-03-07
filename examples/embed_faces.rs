@@ -9,7 +9,7 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
 
     let img_dir = "assets/img";
-    
+
     println!("Loading models from Hugging Face...");
     let mut detector = ScrfdDetector::from_hf().build().await?;
     let mut recognizer = ArcFaceEmbedder::from_hf().build().await?;
