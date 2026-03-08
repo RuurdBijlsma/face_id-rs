@@ -18,7 +18,6 @@ use std::path::Path;
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    // 1. Setup paths
     let img_dir = "assets/img";
     let output_img_dir = Path::new("output_previews");
     let output_json_path = "assets/reference_analysis.json";
@@ -26,18 +25,12 @@ async fn main() -> Result<()> {
     if !output_img_dir.exists() {
         fs::create_dir_all(output_img_dir)?;
     }
-
-    // 2. Initialize the Comprehensive Analyzer from Hugging Face
     println!("Loading models (Detector, Embedder, Gender/Age)...");
     let analyzer = FaceAnalyzer::from_hf().build().await?;
-
-    // 3. Load font for drawing text labels
     let font_data = include_bytes!("../assets/font/Roboto-Medium.ttf");
     let font = FontRef::try_from_slice(font_data)?;
 
     let mut all_results = Vec::new();
-
-    // 4. Process all images in the directory
     println!("Processing images in: {img_dir}");
     for entry in fs::read_dir(img_dir)? {
         let entry = entry?;
@@ -57,15 +50,11 @@ async fn main() -> Result<()> {
 
         let img = image::open(&path)?;
         let mut output_img: RgbImage = img.to_rgb8();
-
-        // RUN PIPELINE: Detection -> Alignment -> Embedder -> Attributes
         let analysis_results = analyzer.analyze(&img)?;
         println!("  Found {} face(s)", analysis_results.len());
 
         for (i, face) in analysis_results.iter().enumerate() {
             let det = &face.detection;
-
-            // Print Info to Stdout
             let ga_str = face.gender_age.as_ref().map_or_else(
                 || "N/A".to_string(),
                 |ga| format!("{:?} (Age: {})", ga.gender, ga.age),
@@ -87,18 +76,12 @@ async fn main() -> Result<()> {
             let y = b.y1.max(0.0) as i32;
             let w = b.width().max(0.0) as u32;
             let h = b.height().max(0.0) as u32;
-
-            // Pick color based on gender if available
             let color = match face.gender_age.as_ref().map(|ga| ga.gender) {
                 Some(Gender::Male) => Rgb([0, 150, 255]),     // Blue
                 Some(Gender::Female) => Rgb([255, 105, 180]), // Pink
                 None => Rgb([0, 255, 0]),                     // Green
             };
-
-            // Draw Bounding Box
             draw_hollow_rect_mut(&mut output_img, Rect::at(x, y).of_size(w, h), color);
-
-            // Draw Landmarks (Red Dots)
             if let Some(landmarks) = &det.landmarks {
                 for pt in landmarks {
                     draw_filled_circle_mut(
@@ -109,8 +92,6 @@ async fn main() -> Result<()> {
                     );
                 }
             }
-
-            // Draw Label (Gender/Age)
             if let Some(ga) = &face.gender_age {
                 let gender_label = match ga.gender {
                     Gender::Male => "M",
@@ -130,18 +111,14 @@ async fn main() -> Result<()> {
             }
         }
 
-        // Save annotated image
         let out_path = output_img_dir.join(format!("analysis_{filename}"));
         output_img.save(&out_path)?;
-
-        // Collect data for JSON
         all_results.push(serde_json::json!({
             "filename": filename,
             "results": analysis_results
         }));
     }
 
-    // 5. Generate Reference JSON
     let file = fs::File::create(output_json_path)?;
     serde_json::to_writer_pretty(file, &all_results)?;
 

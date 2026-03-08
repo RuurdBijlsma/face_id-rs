@@ -23,21 +23,14 @@ struct FaceMetadata {
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    // 1. Configuration
     let input_dir = "C:/Users/Ruurd/Pictures/media_dir";
     let output_base = Path::new("output_previews/clusters");
-
     if output_base.exists() {
         fs::remove_dir_all(output_base)?;
     }
     fs::create_dir_all(output_base)?;
-
-    // 2. Initialize Face Analyzer
-    // We wrap it in Arc so we can share it across Rayon threads safely
     println!("Initializing models...");
     let analyzer = Arc::new(FaceAnalyzer::from_hf().build().await?);
-
-    // 3. Collect all valid image paths first
     println!("Scanning directory: {input_dir}");
     let image_paths: Vec<PathBuf> = WalkDir::new(input_dir)
         .into_iter()
@@ -45,15 +38,11 @@ async fn main() -> Result<()> {
         .map(|e| e.path().to_path_buf())
         .filter(|p| is_image(p))
         .collect();
-
     println!(
         "Found {} images. Starting parallel analysis...",
         image_paths.len()
     );
 
-    // 4. Parallel Analysis using Rayon
-    // This will parallelize image loading, decoding, and alignment.
-    // Inference will be serialized by the Mutexes inside FaceAnalyzer.
     let face_data: Vec<(Vec<f32>, FaceMetadata)> = image_paths
         .par_iter()
         .flat_map(|path| {
@@ -64,8 +53,6 @@ async fn main() -> Result<()> {
                     return Vec::new();
                 }
             };
-
-            // analyzer.analyze is thread-safe due to internal Mutexes
             let analysis_results = match analyzer.analyze(&img) {
                 Ok(res) => res,
                 Err(e) => {
@@ -73,7 +60,6 @@ async fn main() -> Result<()> {
                     return Vec::new();
                 }
             };
-
             analysis_results
                 .into_iter()
                 .filter_map(|face| {
@@ -94,19 +80,14 @@ async fn main() -> Result<()> {
         println!("No faces with embeddings found.");
         return Ok(());
     }
-
-    // Unzip the results into embeddings and metadata
     let (embeddings, face_store): (Vec<Vec<f32>>, Vec<FaceMetadata>) =
         face_data.into_iter().unzip();
 
-    // 5. Run HDBSCAN Clustering
     println!("Clustering {} faces...", embeddings.len());
     let clusterer = Hdbscan::default_hyper_params(&embeddings);
     let labels = clusterer
         .cluster()
         .map_err(|e| color_eyre::eyre::eyre!(e))?;
-
-    // 6. Group faces by their cluster ID
     let mut clusters: HashMap<i32, Vec<(usize, &FaceMetadata)>> = HashMap::new();
     for (idx, &label) in labels.iter().enumerate() {
         clusters
@@ -115,7 +96,6 @@ async fn main() -> Result<()> {
             .push((idx, &face_store[idx]));
     }
 
-    // 7. Output Results (Parallelized image writing)
     println!("Writing cluster results to disk...");
     clusters.par_iter().for_each(|(&label, members)| {
         let cluster_name = if label == -1 {

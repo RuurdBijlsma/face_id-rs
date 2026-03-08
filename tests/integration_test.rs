@@ -17,7 +17,7 @@ async fn test_analyzer_consistency_with_reference() -> color_eyre::Result<()> {
     let reference_path = "assets/reference_analysis.json";
     assert!(
         Path::new(reference_path).exists(),
-        "Reference file {reference_path} not found. Run the comprehensive_analysis example first."
+        "Reference file {reference_path} not found."
     );
     let ref_file = fs::File::open(reference_path)?;
     let reference_data: serde_json::Value = serde_json::from_reader(ref_file)?;
