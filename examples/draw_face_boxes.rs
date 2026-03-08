@@ -54,7 +54,7 @@ async fn main() -> Result<()> {
         println!("  Found {} face(s)", analysis_results.len());
 
         for (i, face) in analysis_results.iter().enumerate() {
-            let det = &face.detection;
+            let det = face.detection.to_absolute(img.width(), img.height());
             let ga_str = face.gender_age.as_ref().map_or_else(
                 || "N/A".to_string(),
                 |ga| format!("{:?} (Age: {})", ga.gender, ga.age),
@@ -72,10 +72,10 @@ async fn main() -> Result<()> {
 
             // --- DRAWING ---
             let b = det.bbox;
-            let x = b.x1.max(0.0) as i32;
-            let y = b.y1.max(0.0) as i32;
-            let w = b.width().max(0.0) as u32;
-            let h = b.height().max(0.0) as u32;
+            let x = b.x1 as i32;
+            let y = b.y1 as i32;
+            let w = b.width() as u32;
+            let h = b.height() as u32;
             let color = match face.gender_age.as_ref().map(|ga| ga.gender) {
                 Some(Gender::Male) => Rgb([0, 150, 255]),     // Blue
                 Some(Gender::Female) => Rgb([255, 105, 180]), // Pink

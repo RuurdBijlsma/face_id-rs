@@ -119,6 +119,7 @@ impl GenderAgeEstimator {
         output_size: u32,
     ) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
         let (img_w, img_h) = img.dimensions();
+        let bbox = bbox.scale(img_w, img_h);
 
         let w = bbox.width();
         let h = bbox.height();

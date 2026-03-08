@@ -9,8 +9,8 @@ Easily run face detection, landmark prediction, facial recognition, and attribut
 
 ## Features
 
-- **Detection**: Face detection using [SCRFD](https://github.com/deepinsight/insightface/tree/master/detection/scrfd).
-- **Landmarks**: Predict 5 facial keypoints (eyes, nose, mouth) for alignment.
+- **Detection**: Face detection using [SCRFD](https://github.com/deepinsight/insightface/tree/master/detection/scrfd). Coordinates are **relative** to image dimensions (0.0 to 1.0).
+- **Landmarks**: Predict 5 facial keypoints (eyes, nose, mouth) for alignment (also relative).
 - **Recognition**: Generate 512-d embeddings
   using [ArcFace](https://github.com/deepinsight/insightface/tree/master/recognition/arcface_torch) for identity
   verification.
@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
     for (i, face) in faces.iter().enumerate() {
         println!("Face #{}", i);
         println!("  Score: {:.2}", face.detection.score);
-        println!("  BBox: {:?}", face.detection.bbox);
+        println!("  BBox (relative): {:?}", face.detection.bbox);
 
         if let Some(ga) = &face.gender_age {
             println!("  Gender: {:?}, Age: {}", ga.gender, ga.age);
@@ -67,7 +67,12 @@ use face_id::detector::ScrfdDetector;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut detector = ScrfdDetector::from_hf().build().await?;
-    let face_boxes = detector.detect(&img)?;
+    let face_boxes = detector.detect(&img)?; // Relative coordinates [0, 1]
+    
+    // To get absolute pixel coordinates:
+    let absolute_boxes: Vec<_> = face_boxes.iter()
+        .map(|f| f.to_absolute(img.width(), img.height()))
+        .collect();
 }
 ```
 

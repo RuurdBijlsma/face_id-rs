@@ -12,7 +12,7 @@
 //! maths of face alignment and image preprocessing internally.
 //!
 //! ### The Pipeline
-//! 1. **Detection**: Finds bounding boxes and 5-point facial landmarks (eyes, nose, mouth).
+//! 1. **Detection**: Finds bounding boxes and 5-point facial landmarks (eyes, nose, mouth). Coordinates are **relative** to image dimensions (0.0 to 1.0).
 //! 2. **Alignment**: Uses the Umeyama algorithm to warp the face into a canonical 112x112 pose.
 //! 3. **Analysis**: Runs the aligned crops through specialized models to produce:
 //!    - **Embeddings**: 512-dimensional vectors representing identity.
@@ -37,9 +37,9 @@
 //!
 //!     for (i, face) in faces.iter().enumerate() {
 //!         println!("Face {i}");
-//!         println!("    Box: {:?}", &face.detection.bbox);
+//!         println!("    Box: {:?}", &face.detection.bbox); // Relative coordinates [0, 1]
 //!         println!("    Score: {:?}", &face.detection.score); // Confidence score of detection
-//!         println!("    Landmarks: {:?}", &face.detection.landmarks); // location of eyes, mouth, nose
+//!         println!("    Landmarks: {:?}", &face.detection.landmarks); // location of eyes, mouth, nose (relative)
 //!         
 //!         if let Some(ga) = &face.gender_age {
 //!             println!("    Gender: {:?}", ga.gender);
@@ -59,7 +59,8 @@
 //! For more granular control, you can use the individual models directly.
 //!
 //! ### Detection
-//! Use [`detector::ScrfdDetector`] to find faces, their bounding boxes, and eyes/nose/mouth location.
+//! Use [`detector::ScrfdDetector`] to find faces. Bounding boxes and landmarks are returned in **relative** coordinates.
+//! To convert them back to absolute pixels, use [`detector::DetectedFace::to_absolute`].
 //!
 //! ```rust
 //! # use face_id::detector::ScrfdDetector;

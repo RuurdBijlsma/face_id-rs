@@ -6,7 +6,7 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
 
     let analyzer = FaceAnalyzer::from_hf().build().await?;
-    let faces = analyzer.analyze(&image::open("assets/img/crowd.jpg")?)?;
+    let faces = analyzer.analyze(&image::open("assets/img/obamna.jpg")?)?;
 
     for (i, face) in faces.iter().enumerate() {
         println!("Face {i}");

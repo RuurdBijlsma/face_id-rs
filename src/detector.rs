@@ -18,6 +18,24 @@ pub struct DetectedFace {
     pub score: f32,
 }
 
+impl DetectedFace {
+    /// Scales relative coordinates back to absolute pixel coordinates.
+    #[must_use]
+    pub fn to_absolute(&self, width: u32, height: u32) -> Self {
+        let w = width as f32;
+        let h = height as f32;
+        Self {
+            bbox: self.bbox.scale(width, height),
+            landmarks: self.landmarks.as_ref().map(|lms| {
+                lms.iter()
+                    .map(|&(x, y)| (x * w, y * h))
+                    .collect()
+            }),
+            ..*self
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct BoundingBox {
@@ -42,11 +60,25 @@ impl BoundingBox {
     pub fn area(&self) -> f32 {
         self.width() * self.height()
     }
+
+    /// Scales relative coordinates back to absolute pixel coordinates.
+    #[must_use]
+    pub fn scale(&self, width: u32, height: u32) -> Self {
+        let w = width as f32;
+        let h = height as f32;
+        Self {
+            x1: self.x1 * w,
+            y1: self.y1 * h,
+            x2: self.x2 * w,
+            y2: self.y2 * h,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct PreprocessParams {
-    ratio: f32,
+    resized_width: f32,
+    resized_height: f32,
     x_offset: f32,
     y_offset: f32,
 }
@@ -289,7 +321,8 @@ impl ScrfdDetector {
         (
             padded,
             PreprocessParams {
-                ratio,
+                resized_width: w_new as f32,
+                resized_height: h_new as f32,
                 x_offset,
                 y_offset,
             },
@@ -356,20 +389,20 @@ impl ScrfdDetector {
                 let anchor_x = anchor[0];
                 let anchor_y = anchor[1];
 
-                let x1 = (dist[0].mul_add(-stride_f, anchor_x) - params.x_offset) / params.ratio;
-                let y1 = (dist[1].mul_add(-stride_f, anchor_y) - params.y_offset) / params.ratio;
-                let x2 = (dist[2].mul_add(stride_f, anchor_x) - params.x_offset) / params.ratio;
-                let y2 = (dist[3].mul_add(stride_f, anchor_y) - params.y_offset) / params.ratio;
+                let x1 = (dist[0].mul_add(-stride_f, anchor_x) - params.x_offset) / params.resized_width;
+                let y1 = (dist[1].mul_add(-stride_f, anchor_y) - params.y_offset) / params.resized_height;
+                let x2 = (dist[2].mul_add(stride_f, anchor_x) - params.x_offset) / params.resized_width;
+                let y2 = (dist[3].mul_add(stride_f, anchor_y) - params.y_offset) / params.resized_height;
 
                 let landmarks = kps.as_ref().map(|kps_tensor| {
                     let kps_dist = kps_tensor.slice(s![i, ..]);
                     let mut lms = Vec::with_capacity(5);
                     for j in 0..5 {
                         let lx = (kps_dist[j * 2].mul_add(stride_f, anchor_x) - params.x_offset)
-                            / params.ratio;
+                            / params.resized_width;
                         let ly = (kps_dist[j * 2 + 1].mul_add(stride_f, anchor_y)
                             - params.y_offset)
-                            / params.ratio;
+                            / params.resized_height;
                         lms.push((lx, ly));
                     }
                     lms
