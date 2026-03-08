@@ -2,10 +2,8 @@
 
 use color_eyre::eyre::Result;
 use face_id::analyzer::{FaceAnalysis, FaceAnalyzer};
-use face_id::helpers::cluster_faces;
-use image::{Rgb, RgbImage};
-use imageproc::drawing::draw_hollow_rect_mut;
-use imageproc::rect::Rect;
+use face_id::helpers::{cluster_faces, extract_face_thumbnail};
+use image::RgbImage;
 use ort::ep::CUDA;
 use rayon::prelude::*;
 use std::collections::HashMap;
@@ -18,7 +16,7 @@ use walkdir::WalkDir;
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let input_dir = "assets/img";
+    let input_dir = "/home/ruurd/Pictures/Photos";
     let output_base = Path::new("output_previews/clusters");
     if output_base.exists() {
         fs::remove_dir_all(output_base)?;
@@ -54,9 +52,10 @@ async fn main() -> Result<()> {
         cluster_faces(&analyzer, image_paths)
             .min_cluster_size(5)
             .call()?;
+    let face_count = clusters.iter().fold(0, |acc, (_, faces)| acc + faces.len());
     println!(
         "cluster_faces for {} faces took {:?}",
-        clusters.len(),
+        face_count,
         now.elapsed()
     );
 
@@ -65,7 +64,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    println!("Writing cluster results to disk...");
+    println!("Writing cluster thumbnails to disk...");
     clusters
         .par_iter()
         .for_each(|(label, members): (&i32, &Vec<(PathBuf, FaceAnalysis)>)| {
@@ -86,17 +85,18 @@ async fn main() -> Result<()> {
                         continue;
                     }
                 };
-                let mut output_img: RgbImage = img.to_rgb8();
 
-                let b = &face.detection.bbox;
-                let rect =
-                    Rect::at(b.x1 as i32, b.y1 as i32).of_size(b.width() as u32, b.height() as u32);
-
-                draw_hollow_rect_mut(&mut output_img, rect, Rgb([0, 255, 0]));
+                // Extract a high-quality thumbnail for the face
+                let thumbnail: RgbImage = extract_face_thumbnail(
+                    &img,
+                    &face.detection.bbox,
+                    1.6, // padding factor
+                    256, // output size
+                );
 
                 let file_stem = path.file_stem().unwrap().to_string_lossy();
                 let out_name = format!("{file_stem}_face_{member_idx}.jpg");
-                output_img.save(cluster_dir.join(out_name)).unwrap();
+                thumbnail.save(cluster_dir.join(out_name)).unwrap();
             }
         });
 
