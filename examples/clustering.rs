@@ -4,7 +4,6 @@ use color_eyre::eyre::Result;
 use face_id::analyzer::{FaceAnalysis, FaceAnalyzer};
 use face_id::helpers::{cluster_faces, extract_face_thumbnail};
 use image::RgbImage;
-use ort::ep::CUDA;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
@@ -24,10 +23,7 @@ async fn main() -> Result<()> {
     fs::create_dir_all(output_base)?;
 
     println!("Initializing models...");
-    let analyzer = FaceAnalyzer::from_hf()
-        .with_execution_providers(&[CUDA::default().build().error_on_failure()])
-        .build()
-        .await?;
+    let analyzer = FaceAnalyzer::from_hf().build().await?;
 
     println!("Scanning directory: {input_dir}");
     let image_paths: Vec<PathBuf> = WalkDir::new(input_dir)

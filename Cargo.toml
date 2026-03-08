@@ -34,7 +34,7 @@ walkdir = "2.5.0"
 hdbscan = "0.12.0"
 
 [features]
-default = ["download-binaries", "copy-dylibs", "hf-hub", "serde", "clustering", "cuda"]
+default = ["download-binaries", "copy-dylibs", "hf-hub", "serde", "clustering"]
 serde = ["dep:serde", "dep:serde_json"]
 clustering = ["dep:hdbscan"]
 download-binaries = ["ort/download-binaries"]

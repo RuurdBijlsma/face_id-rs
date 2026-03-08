@@ -22,9 +22,7 @@ async fn test_analyzer_consistency_with_reference() -> color_eyre::Result<()> {
     let ref_file = fs::File::open(reference_path)?;
     let reference_data: serde_json::Value = serde_json::from_reader(ref_file)?;
     let reference_list = reference_data.as_array().expect("JSON should be an array");
-    let analyzer = FaceAnalyzer::from_hf()
-        .build()
-        .await?;
+    let analyzer = FaceAnalyzer::from_hf().build().await?;
 
     for ref_entry in reference_list {
         let filename = ref_entry["filename"].as_str().unwrap();
