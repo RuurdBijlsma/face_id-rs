@@ -1,8 +1,8 @@
 [package]
 name = "face_id"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
-exclude = ["assets", ".github", "output_previews"]
+exclude = ["assets", ".github", "output_previews", "justfile"]
 description = "Face detection (bounding boxes, eyes/nose/mouth markers), and facial recognition (embeddings)."
 repository = "https://github.com/RuurdBijlsma/face_id-rs"
 homepage = "https://github.com/RuurdBijlsma/face_id-rs"
@@ -19,6 +19,8 @@ serde = { version = "1.0.228", optional = true, features = ["derive"] }
 serde_json = { version = "1.0.149", optional = true }
 hf-hub = { version = "0.5.0", features = ["tokio"], optional = true }
 bon = "3.9.0"
+rayon = "1.10"
+hdbscan = { version = "0.12.0", optional = true }
 
 [dev-dependencies]
 color-eyre = "0.6.5"
@@ -27,12 +29,14 @@ serde_json = { version = "1.0.149" }
 imageproc = "0.26.1"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 ab_glyph = "0.2.32"
-rayon = "1.10"
 tokio = { version = "1.50", features = ["rt", "macros"] }
+walkdir = "2.5.0"
+hdbscan = "0.12.0"
 
 [features]
-default = ["download-binaries", "copy-dylibs", "hf-hub", "serde"]
+default = ["download-binaries", "copy-dylibs", "hf-hub", "serde", "clustering"]
 serde = ["dep:serde", "dep:serde_json"]
+clustering = ["dep:hdbscan"]
 download-binaries = ["ort/download-binaries"]
 copy-dylibs = ["ort/copy-dylibs"]
 load-dynamic = ["ort/load-dynamic"]

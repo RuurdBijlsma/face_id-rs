@@ -3,8 +3,8 @@ use crate::detector::BoundingBox;
 use crate::error::FaceIdError;
 use crate::model_manager::{HfModel, get_hf_model};
 use bon::bon;
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
-use ndarray::{Array4, s};
+use image::{DynamicImage, ImageBuffer, Rgb};
+use ndarray::Array4;
 use ort::ep::ExecutionProviderDispatch;
 use ort::session::Session;
 use ort::value::Value;
@@ -101,7 +101,8 @@ impl GenderAgeEstimator {
         img: &DynamicImage,
         bbox: &BoundingBox,
     ) -> Result<GenderAge, FaceIdError> {
-        let cropped_face = Self::align_crop(img, bbox, 96);
+        let rgb_img = img.to_rgb8();
+        let cropped_face = Self::align_crop(&rgb_img, bbox, 96);
         let results = self.estimate_batch(&[cropped_face])?;
         results
             .into_iter()
@@ -113,7 +114,7 @@ impl GenderAgeEstimator {
     /// with a 1.5x expansion factor to include context.
     #[must_use]
     pub fn align_crop(
-        img: &DynamicImage,
+        img: &ImageBuffer<Rgb<u8>, Vec<u8>>,
         bbox: &BoundingBox,
         output_size: u32,
     ) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
@@ -144,23 +145,19 @@ impl GenderAgeEstimator {
             let width = src_x2 - src_x;
             let height = src_y2 - src_y;
 
-            let sub_img = img.view(src_x, src_y, width, height);
-
-            // Where to paste in the canvas
-            let dst_x = (src_x.cast_signed() - x1) as u32;
-            let dst_y = (src_y.cast_signed() - y1) as u32;
-
-            image::imageops::overlay(
-                &mut canvas,
-                &sub_img.to_image(),
-                i64::from(dst_x),
-                i64::from(dst_y),
-            );
+            // Manual copy from buffer to canvas
+            for y in 0..height {
+                for x in 0..width {
+                    let pixel = img.get_pixel(src_x + x, src_y + y);
+                    let dst_x = (src_x.cast_signed() - x1) as u32 + x;
+                    let dst_y = (src_y.cast_signed() - y1) as u32 + y;
+                    canvas.put_pixel(dst_x, dst_y, *pixel);
+                }
+            }
         }
 
         // Resize the padded square crop to the model input size (96x96)
-        let dynamic_canvas = DynamicImage::ImageRgba8(canvas);
-        dynamic_canvas
+        DynamicImage::ImageRgb8(canvas)
             .resize_exact(
                 output_size,
                 output_size,
@@ -175,6 +172,11 @@ impl GenderAgeEstimator {
         let batch_size = imgs.len();
         let mut array = Array4::<f32>::zeros((batch_size, 3, 96, 96));
 
+        let data = array.as_slice_memory_order_mut().ok_or_else(|| {
+            FaceIdError::FailedToGetMutableSlice("Failed to get mutable slice from array".into())
+        })?;
+
+        let channel_stride = 96 * 96;
         for (batch_idx, img) in imgs.iter().enumerate() {
             let (w, h) = img.dimensions();
             if w != 96 || h != 96 {
@@ -184,19 +186,13 @@ impl GenderAgeEstimator {
             }
 
             let raw = img.as_raw();
-            let mut view = array.slice_mut(s![batch_idx, .., .., ..]);
+            let batch_offset = batch_idx * 3 * channel_stride;
 
             // Buffalo-L attribute genderage.onnx expects: BGR channel order, 0-255 range
-            let (b_plane, rest) = view
-                .as_slice_memory_order_mut()
-                .ok_or_else(|| FaceIdError::Ort("Failed to get mutable slice".into()))?
-                .split_at_mut(96 * 96);
-            let (g_plane, r_plane) = rest.split_at_mut(96 * 96);
-
-            for (i, pixel) in raw.chunks_exact(3).enumerate() {
-                r_plane[i] = f32::from(pixel[0]); // R
-                g_plane[i] = f32::from(pixel[1]); // G
-                b_plane[i] = f32::from(pixel[2]); // B
+            for (i, chunk) in raw.chunks_exact(3).enumerate() {
+                data[batch_offset + i] = f32::from(chunk[2]); // B
+                data[batch_offset + i + channel_stride] = f32::from(chunk[1]); // G
+                data[batch_offset + i + 2 * channel_stride] = f32::from(chunk[0]); // R
             }
         }
 
