@@ -29,9 +29,6 @@ jobs:
   test:
     name: Tests
     runs-on: ubuntu-latest
-    env:
-      OMP_NUM_THREADS: 1
-      ORT_NUM_THREADS: 1
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust
