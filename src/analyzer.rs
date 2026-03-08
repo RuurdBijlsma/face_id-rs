@@ -6,10 +6,24 @@ use crate::gender_age::{GenderAge, GenderAgeEstimator};
 use crate::model_manager::HfModel;
 use bon::bon;
 use image::DynamicImage;
+#[cfg(feature = "cuda")]
+use ort::ep::CUDA;
 use ort::ep::ExecutionProviderDispatch;
 use rayon::prelude::*;
 use std::path::Path;
 use std::sync::Mutex;
+
+#[cfg(feature = "cuda")]
+pub fn default_optimized_cuda() -> ExecutionProviderDispatch {
+    CUDA::default()
+        .with_conv_algorithm_search(ort::ep::cuda::ConvAlgorithmSearch::Exhaustive)
+        .with_arena_extend_strategy(ort::ep::ArenaExtendStrategy::NextPowerOfTwo)
+        .with_conv_max_workspace(true)
+        .with_conv1d_pad_to_nc1d(false)
+        .with_tf32(true)
+        .build()
+        .error_on_failure()
+}
 
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

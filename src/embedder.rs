@@ -81,9 +81,9 @@ impl ArcFaceEmbedder {
         // Shape: [N, 3, 112, 112]
         let mut array = Array4::<f32>::zeros((batch_size, 3, 112, 112));
 
-        let data = array.as_slice_memory_order_mut().ok_or_else(|| {
-            FaceIdError::Ort("Failed to get mutable slice".into())
-        })?;
+        let data = array
+            .as_slice_memory_order_mut()
+            .ok_or_else(|| FaceIdError::Ort("Failed to get mutable slice".into()))?;
 
         let channel_stride = 112 * 112;
         for (batch_idx, img) in imgs.iter().enumerate() {
