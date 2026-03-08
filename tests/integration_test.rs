@@ -1,7 +1,6 @@
 #![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 
 use face_id::analyzer::FaceAnalyzer;
-use ort::ep::CUDA;
 use std::fs;
 use std::path::Path;
 
@@ -24,7 +23,6 @@ async fn test_analyzer_consistency_with_reference() -> color_eyre::Result<()> {
     let reference_data: serde_json::Value = serde_json::from_reader(ref_file)?;
     let reference_list = reference_data.as_array().expect("JSON should be an array");
     let analyzer = FaceAnalyzer::from_hf()
-        .with_execution_providers(&[CUDA::default().build().error_on_failure()])
         .build()
         .await?;
 

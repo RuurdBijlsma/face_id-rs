@@ -1,7 +1,6 @@
-use criterion::{Criterion, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, Criterion};
 use face_id::analyzer::FaceAnalyzer;
 use face_id::gender_age::GenderAgeEstimator;
-use ort::ep::CUDA;
 use std::hint::black_box;
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -49,7 +48,6 @@ fn bench_pipeline(c: &mut Criterion) {
 
     let analyzer = block_on(
         FaceAnalyzer::from_hf()
-            .with_execution_providers(&[CUDA::default().build().error_on_failure()])
             .build(),
     )
     .unwrap();
@@ -69,7 +67,6 @@ fn bench_sub_components(c: &mut Criterion) {
 
     let analyzer = block_on(
         FaceAnalyzer::from_hf()
-            .with_execution_providers(&[CUDA::default().build().error_on_failure()])
             .build(),
     )
     .unwrap();
