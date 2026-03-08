@@ -1,6 +1,6 @@
 [package]
 name = "face_id"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 exclude = ["assets", ".github", "output_previews", "justfile"]
 description = "Face detection (bounding boxes, eyes/nose/mouth markers), and facial recognition (embeddings)."
