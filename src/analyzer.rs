@@ -125,7 +125,13 @@ impl FaceAnalyzer {
             .enumerate()
             .filter_map(|(idx, res)| {
                 let landmarks = res.detection.landmarks.as_ref()?;
-                let lms_array: [(f32, f32); 5] = landmarks.as_slice().try_into().ok()?;
+                let lms_array: [(f32, f32); 5] = landmarks
+                    .iter()
+                    .map(|&(x, y)| (x * rgb_img.width() as f32, y * rgb_img.height() as f32))
+                    .collect::<Vec<_>>()
+                    .as_slice()
+                    .try_into()
+                    .ok()?;
                 let aligned = norm_crop(&rgb_img, &lms_array, 112);
                 Some((aligned, idx))
             })

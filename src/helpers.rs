@@ -28,6 +28,7 @@ pub fn extract_face_thumbnail(
     size: u32,
 ) -> ImageBuffer<Rgb<u8>, Vec<u8>> {
     let (img_w, img_h) = img.dimensions();
+    let bbox = bbox.scale(img_w, img_h);
 
     let width = bbox.width();
     let height = bbox.height();
@@ -171,10 +172,10 @@ mod tests {
 
         // Face near the right edge, so with padding/aspect ratio 1 it would stick out
         let bbox = BoundingBox {
-            x1: 40.0,
-            y1: 50.0,
-            x2: 50.0,
-            y2: 60.0,
+            x1: 0.8,
+            y1: 0.5,
+            x2: 1.0,
+            y2: 0.6,
         };
 
         let thumbnail = extract_face_thumbnail(&img, &bbox, 4.0, 100);
