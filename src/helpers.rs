@@ -1,6 +1,17 @@
 #![allow(clippy::similar_names)]
-use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use crate::detector::BoundingBox;
+use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
+#[cfg(feature = "clustering")]
+use crate::analyzer::{FaceAnalysis, FaceAnalyzer};
+#[cfg(feature = "clustering")]
+use crate::error::FaceIdError;
+#[cfg(feature = "clustering")]
+use hdbscan::{DistanceMetric, Hdbscan, HdbscanHyperParams, NnAlgorithm};
+use rayon::prelude::*;
+#[cfg(feature = "clustering")]
+use std::collections::HashMap;
+#[cfg(feature = "clustering")]
+use std::path::{Path, PathBuf};
 
 /// Extracts a square, padded thumbnail for a face.
 ///
@@ -56,7 +67,12 @@ pub fn extract_face_thumbnail(
         let dst_y = (src_y1.cast_signed() - y1) as u64;
 
         // Overlay the valid pixels onto the black canvas
-        image::imageops::overlay(&mut canvas, &sub_img.to_image(), dst_x.cast_signed(), dst_y.cast_signed());
+        image::imageops::overlay(
+            &mut canvas,
+            &sub_img.to_image(),
+            dst_x.cast_signed(),
+            dst_y.cast_signed(),
+        );
     }
 
     // 6. Final resize to the standard thumbnail size
@@ -64,4 +80,99 @@ pub fn extract_face_thumbnail(
     dynamic_canvas
         .resize_exact(size, size, image::imageops::FilterType::CatmullRom)
         .to_rgb8()
+}
+
+/// Clusters faces from a list of images using the HDBSCAN algorithm.
+///
+/// This function performs the following steps:
+/// 1. Loads each image from the provided paths.
+/// 2. Performs face analysis (detection and embedding) using the provided `FaceAnalyzer`.
+/// 3. Clusters the resulting face embeddings using HDBSCAN.
+///
+/// Returns a mapping of cluster IDs to a list of (image path, face analysis) pairs.
+/// Cluster ID -1 represents noise.
+///
+/// # Errors
+/// Returns a `FaceIdError` if any image fails to load, analysis fails, or clustering fails.
+///
+/// # Feature Gated
+/// This function is only available when the `clustering` feature is enabled.
+#[cfg(feature = "clustering")]
+#[bon::builder]
+pub fn cluster_faces<P: AsRef<Path> + Sync + Send>(
+    #[builder(start_fn)] analyzer: &FaceAnalyzer,
+    #[builder(start_fn)] paths: Vec<P>,
+    #[builder(default = 5)] min_cluster_size: usize,
+    #[builder(default = usize::MAX)] max_cluster_size: usize,
+    #[builder(default = false)] allow_single_cluster: bool,
+    min_samples: Option<usize>,
+    #[builder(default = 0.0)] epsilon: f64,
+    #[builder(default = DistanceMetric::Euclidean)] dist_metric: DistanceMetric,
+    #[builder(default = NnAlgorithm::Auto)] nn_algo: NnAlgorithm,
+) -> Result<HashMap<i32, Vec<(PathBuf, FaceAnalysis)>>, FaceIdError> {
+    // 1. Analyze images in parallel
+    let all_faces: Vec<(PathBuf, FaceAnalysis)> = paths
+        .into_par_iter()
+        .map(|path_ref| -> Result<Vec<(PathBuf, FaceAnalysis)>, FaceIdError> {
+            let path = path_ref.as_ref().to_path_buf();
+            let img = image::open(&path)?;
+            let faces = analyzer.analyze(&img)?;
+            Ok(faces.into_iter().map(|f| (path.clone(), f)).collect())
+        })
+        .collect::<Result<Vec<Vec<_>>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect();
+
+    if all_faces.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // 2. Prepare embeddings for clustering
+    let (embeddings, face_refs): (Vec<Vec<f32>>, Vec<&(PathBuf, FaceAnalysis)>) = all_faces
+        .iter()
+        .filter_map(|pair| {
+            pair.1
+                .embedding
+                .as_ref()
+                .map(|emb: &Vec<f32>| (emb.clone(), pair))
+        })
+        .unzip();
+
+    if embeddings.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // 3. Perform clustering
+    let mut hp_builder = HdbscanHyperParams::builder()
+        .min_cluster_size(min_cluster_size)
+        .max_cluster_size(max_cluster_size)
+        .allow_single_cluster(allow_single_cluster)
+        .epsilon(epsilon)
+        .dist_metric(dist_metric)
+        .nn_algorithm(nn_algo);
+
+    if let Some(ms) = min_samples {
+        hp_builder = hp_builder.min_samples(ms);
+    } else {
+        hp_builder = hp_builder.min_samples(min_cluster_size);
+    }
+
+    let hyper_params = hp_builder.build();
+    let clusterer = Hdbscan::new(&embeddings, hyper_params);
+    let labels: Vec<i32> = clusterer
+        .cluster()
+        .map_err(|e| FaceIdError::Clustering(e.to_string()))?;
+
+    // 4. Group results
+    let mut clusters: HashMap<i32, Vec<(PathBuf, FaceAnalysis)>> = HashMap::new();
+    for (idx, &label) in labels.iter().enumerate() {
+        let (path, face) = face_refs[idx];
+        clusters
+            .entry(label)
+            .or_default()
+            .push((path.clone(), face.clone()));
+    }
+
+    Ok(clusters)
 }

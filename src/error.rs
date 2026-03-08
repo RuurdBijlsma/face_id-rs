@@ -23,6 +23,8 @@ pub enum FaceIdError {
     #[cfg(feature = "hf-hub")]
     #[error("Hugging Face Hub error: {0}")]
     HfHub(String),
+    #[error("Clustering Error: {0}")]
+    Clustering(String),
 }
 
 impl<T> From<ort::Error<T>> for FaceIdError {
