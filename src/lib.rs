@@ -181,3 +181,4 @@ pub mod error;
 pub mod face_align;
 pub mod gender_age;
 pub mod model_manager;
+pub mod helpers;

@@ -98,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
 
 ## Loading Local Models
 If you want to use local ONNX model files instead of downloading from `HuggingFace`,
-use the `new()` builder.
+use the builder method.
 ```rust
 use face_id::analyzer::FaceAnalyzer;
 fn main() -> anyhow::Result<()> {
