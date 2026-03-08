@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use face_id::analyzer::FaceAnalyzer;
 use face_id::gender_age::GenderAgeEstimator;
 use std::hint::black_box;
@@ -46,11 +46,7 @@ fn bench_pipeline(c: &mut Criterion) {
     group.sample_size(400);
     group.measurement_time(Duration::from_secs(35));
 
-    let analyzer = block_on(
-        FaceAnalyzer::from_hf()
-            .build(),
-    )
-    .unwrap();
+    let analyzer = block_on(FaceAnalyzer::from_hf().build()).unwrap();
     let image = &image::open(TEST_IMAGE_FILE).unwrap();
 
     group.bench_function("analyze_full_pipeline", |b| {
@@ -65,11 +61,7 @@ fn bench_sub_components(c: &mut Criterion) {
     group.sample_size(40);
     group.measurement_time(Duration::from_secs(6));
 
-    let analyzer = block_on(
-        FaceAnalyzer::from_hf()
-            .build(),
-    )
-    .unwrap();
+    let analyzer = block_on(FaceAnalyzer::from_hf().build()).unwrap();
     let image = image::open(TEST_IMAGE_FILE).unwrap();
     let rgb_image = image.to_rgb8();
 

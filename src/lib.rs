@@ -137,6 +137,41 @@
 //! }
 //! ```
 //!
+//! ## Face Clustering & Cropping helpers
+//!
+//! You can cluster faces from multiple images and then extract high-quality thumbnails for the results.
+//!
+//! ```rust
+//! # use std::fmt::format;
+//! use face_id::analyzer::FaceAnalyzer;
+//! # use face_id::helpers::{cluster_faces, extract_face_thumbnail};
+//! # use std::path::PathBuf;
+//! # use face_id::analyzer::FaceAnalysis;
+//! # async fn run() -> color_eyre::Result<()> {
+//! # let analyzer = FaceAnalyzer::from_hf().build().await?;
+//! let paths = vec!["img1.jpg", "img2.jpg"];
+//!
+//! // Cluster faces across multiple images
+//! let clusters = cluster_faces(&analyzer, paths)
+//!     .min_cluster_size(5)
+//!     .call()?;
+//!
+//! let mut face_idx = 0;
+//! for (cluster_id, faces) in clusters {
+//!     println!("Cluster {cluster_id} has {} faces", faces.len());
+//!     for (path, face) in faces {
+//!         // Extract a square thumbnail with 60% padding
+//!         let img = image::open(path)?;
+//!         let thumbnail = extract_face_thumbnail(&img, &face.detection.bbox, 1.6, 256);
+//!         // Use the extracted thumbnail
+//!         face_idx += 1;
+//!         thumbnail.save(format!("face{face_idx}.jpg"));
+//!     }
+//! }
+//! # Ok(())
+//! # }
+//! ```
+//!
 //! ## Hardware Acceleration
 //!
 //! This crate supports a variety of Execution Providers (EPs) via `ort`. To use a specific GPU
@@ -165,6 +200,7 @@
 //! - `hf-hub` (Default): Allows downloading models from Hugging Face.
 //! - `copy-dylibs` / `download-binaries` (Default): Simplifies `ort` setup.
 //! - `serde`: Enables serialization/deserialization for results.
+//! - `clustering` (Default): Enables face clustering using HDBSCAN.
 //! - **Execution Providers**: `cuda`, `tensorrt`, `coreml`, `directml`, `openvino`, etc.
 
 #![allow(
@@ -180,5 +216,5 @@ pub mod embedder;
 pub mod error;
 pub mod face_align;
 pub mod gender_age;
-pub mod model_manager;
 pub mod helpers;
+pub mod model_manager;

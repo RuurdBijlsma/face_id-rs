@@ -96,6 +96,36 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
+## Clustering & Face Crop
+
+You can cluster faces from many images and then extract cropped faces using two helper functions:
+
+```rust
+use face_id::analyzer::FaceAnalyzer;
+use face_id::helpers::{cluster_faces, extract_face_thumbnail};
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let analyzer = FaceAnalyzer::from_hf().build().await?;
+    let paths = vec!["img1.jpg", "img2.jpg"];
+
+    // Cluster faces across multiple images
+    let clusters = cluster_faces(&analyzer, paths)
+        .min_cluster_size(5)
+        .call()?;
+
+    for (cluster_id, faces) in clusters {
+        println!("Cluster {cluster_id} has {} faces", faces.len());
+        for (path, face) in faces {
+            // Extract a square thumbnail with 60% padding
+            let img = image::open(path)?;
+            let thumbnail = extract_face_thumbnail(&img, &face.detection.bbox, 1.6, 256);
+            // thumbnail.save(format!("cluster_{cluster_id}_{}.jpg", ...))?;
+        }
+    }
+}
+```
+
 ## Loading Local Models
 If you want to use local ONNX model files instead of downloading from `HuggingFace`,
 use the builder method.
@@ -195,6 +225,7 @@ The default recognition model is `w600k_r50.onnx` (ResNet-50) from the InsightFa
 - `hf-hub` (Default): Allows downloading models from Hugging Face.
 - `copy-dylibs` / `download-binaries` (Default): Simplifies `ort` setup.
 - `serde`: Enables serialization/deserialization for results.
+- `clustering` (Default): Enables face clustering using HDBSCAN.
 - **Execution Providers**: `cuda`, `tensorrt`, `coreml`, `directml`, `openvino`, etc.
 
 ## Troubleshooting

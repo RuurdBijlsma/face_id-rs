@@ -1,43 +1,30 @@
 #![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 
 use color_eyre::eyre::Result;
-use face_id::analyzer::FaceAnalyzer;
-use face_id::detector::DetectedFace;
-use hdbscan::Hdbscan;
-use image::{Rgb, RgbImage};
-use imageproc::drawing::draw_hollow_rect_mut;
-use imageproc::rect::Rect;
+use face_id::analyzer::{FaceAnalysis, FaceAnalyzer};
+use face_id::helpers::{cluster_faces, extract_face_thumbnail};
+use image::RgbImage;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::time::Instant;
 use walkdir::WalkDir;
-
-struct FaceMetadata {
-    path: PathBuf,
-    detection: DetectedFace,
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    // 1. Configuration
-    let input_dir = "C:/Users/Ruurd/Pictures/media_dir";
+    let input_dir = "/home/ruurd/Pictures/Photos";
     let output_base = Path::new("output_previews/clusters");
-
     if output_base.exists() {
         fs::remove_dir_all(output_base)?;
     }
     fs::create_dir_all(output_base)?;
 
-    // 2. Initialize Face Analyzer
-    // We wrap it in Arc so we can share it across Rayon threads safely
     println!("Initializing models...");
-    let analyzer = Arc::new(FaceAnalyzer::from_hf().build().await?);
+    let analyzer = FaceAnalyzer::from_hf().build().await?;
 
-    // 3. Collect all valid image paths first
     println!("Scanning directory: {input_dir}");
     let image_paths: Vec<PathBuf> = WalkDir::new(input_dir)
         .into_iter()
@@ -46,102 +33,68 @@ async fn main() -> Result<()> {
         .filter(|p| is_image(p))
         .collect();
 
-    println!(
-        "Found {} images. Starting parallel analysis...",
-        image_paths.len()
-    );
-
-    // 4. Parallel Analysis using Rayon
-    // This will parallelize image loading, decoding, and alignment.
-    // Inference will be serialized by the Mutexes inside FaceAnalyzer.
-    let face_data: Vec<(Vec<f32>, FaceMetadata)> = image_paths
-        .par_iter()
-        .flat_map(|path| {
-            let img = match image::open(path) {
-                Ok(i) => i,
-                Err(e) => {
-                    eprintln!("Failed to open {}: {}", path.display(), e);
-                    return Vec::new();
-                }
-            };
-
-            // analyzer.analyze is thread-safe due to internal Mutexes
-            let analysis_results = match analyzer.analyze(&img) {
-                Ok(res) => res,
-                Err(e) => {
-                    eprintln!("Failed to analyze {}: {}", path.display(), e);
-                    return Vec::new();
-                }
-            };
-
-            analysis_results
-                .into_iter()
-                .filter_map(|face| {
-                    let emb = face.embedding?;
-                    Some((
-                        emb,
-                        FaceMetadata {
-                            path: path.clone(),
-                            detection: face.detection,
-                        },
-                    ))
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
-
-    if face_data.is_empty() {
-        println!("No faces with embeddings found.");
+    if image_paths.is_empty() {
+        println!("No images found.");
         return Ok(());
     }
 
-    // Unzip the results into embeddings and metadata
-    let (embeddings, face_store): (Vec<Vec<f32>>, Vec<FaceMetadata>) =
-        face_data.into_iter().unzip();
+    println!(
+        "Found {} images. Starting analysis and clustering...",
+        image_paths.len()
+    );
+    let now = Instant::now();
+    // Use the high-level helper to analyze and cluster faces
+    let clusters: HashMap<i32, Vec<(PathBuf, FaceAnalysis)>> =
+        cluster_faces(&analyzer, image_paths)
+            .min_cluster_size(5)
+            .call()?;
+    let face_count = clusters.iter().fold(0, |acc, (_, faces)| acc + faces.len());
+    println!(
+        "cluster_faces for {} faces took {:?}",
+        face_count,
+        now.elapsed()
+    );
 
-    // 5. Run HDBSCAN Clustering
-    println!("Clustering {} faces...", embeddings.len());
-    let clusterer = Hdbscan::default_hyper_params(&embeddings);
-    let labels = clusterer
-        .cluster()
-        .map_err(|e| color_eyre::eyre::eyre!(e))?;
-
-    // 6. Group faces by their cluster ID
-    let mut clusters: HashMap<i32, Vec<(usize, &FaceMetadata)>> = HashMap::new();
-    for (idx, &label) in labels.iter().enumerate() {
-        clusters
-            .entry(label)
-            .or_default()
-            .push((idx, &face_store[idx]));
+    if clusters.is_empty() {
+        println!("No clusters found.");
+        return Ok(());
     }
 
-    // 7. Output Results (Parallelized image writing)
-    println!("Writing cluster results to disk...");
-    clusters.par_iter().for_each(|(&label, members)| {
-        let cluster_name = if label == -1 {
-            "noise".to_string()
-        } else {
-            format!("cluster_{label}")
-        };
+    println!("Writing cluster thumbnails to disk...");
+    clusters
+        .par_iter()
+        .for_each(|(label, members): (&i32, &Vec<(PathBuf, FaceAnalysis)>)| {
+            let cluster_name = if *label == -1 {
+                "noise".to_string()
+            } else {
+                format!("cluster_{label}")
+            };
 
-        let cluster_dir = output_base.join(&cluster_name);
-        fs::create_dir_all(&cluster_dir).unwrap();
+            let cluster_dir = output_base.join(&cluster_name);
+            fs::create_dir_all(&cluster_dir).unwrap();
 
-        for (member_idx, metadata) in members {
-            let img = image::open(&metadata.path).unwrap();
-            let mut output_img: RgbImage = img.to_rgb8();
+            for (member_idx, (path, face)) in members.iter().enumerate() {
+                let img = match image::open(path) {
+                    Ok(i) => i,
+                    Err(e) => {
+                        eprintln!("Failed to open {}: {}", path.display(), e);
+                        continue;
+                    }
+                };
 
-            let b = &metadata.detection.bbox;
-            let rect =
-                Rect::at(b.x1 as i32, b.y1 as i32).of_size(b.width() as u32, b.height() as u32);
+                // Extract a high-quality thumbnail for the face
+                let thumbnail: RgbImage = extract_face_thumbnail(
+                    &img,
+                    &face.detection.bbox,
+                    1.6, // padding factor
+                    256, // output size
+                );
 
-            draw_hollow_rect_mut(&mut output_img, rect, Rgb([0, 255, 0]));
-
-            let file_stem = metadata.path.file_stem().unwrap().to_string_lossy();
-            let out_name = format!("{file_stem}_face_{member_idx}.jpg");
-            output_img.save(cluster_dir.join(out_name)).unwrap();
-        }
-    });
+                let file_stem = path.file_stem().unwrap().to_string_lossy();
+                let out_name = format!("{file_stem}_face_{member_idx}.jpg");
+                thumbnail.save(cluster_dir.join(out_name)).unwrap();
+            }
+        });
 
     println!("Done! Check output_previews/clusters");
     Ok(())
