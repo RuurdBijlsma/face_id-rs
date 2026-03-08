@@ -307,22 +307,18 @@ impl ScrfdDetector {
 
         let mut array = Array4::<f32>::zeros((1, 3, h, w));
 
-        let (r_plane, rest) = array
-            .as_slice_memory_order_mut()
-            .ok_or_else(|| {
-                FaceIdError::FailedToGetMutableSlice(
-                    "Failed to get mutable slice from array".into(),
-                )
-            })?
-            .split_at_mut(h * w);
-        let (g_plane, b_plane) = rest.split_at_mut(h * w);
+        // Get the entire slice as mutable
+        let data = array.as_slice_memory_order_mut().ok_or_else(|| {
+            FaceIdError::FailedToGetMutableSlice("Failed to get mutable slice from array".into())
+        })?;
 
-        // Convert HWC directly to NCHW normalized without intermediate allocations
-        // The image is internally contiguous R, G, B triplets.
-        for (i, pixel) in raw.chunks_exact(3).enumerate() {
-            r_plane[i] = (f32::from(pixel[0]) - 127.5) / 128.0;
-            g_plane[i] = (f32::from(pixel[1]) - 127.5) / 128.0;
-            b_plane[i] = (f32::from(pixel[2]) - 127.5) / 128.0;
+        // Optimized HWC -> NCHW conversion with normalization
+        // Buffalo-L SCRFD expects: (x - 127.5) / 128.0
+        let channel_stride = h * w;
+        for (i, chunk) in raw.chunks_exact(3).enumerate() {
+            data[i] = (f32::from(chunk[0]) - 127.5) / 128.0;
+            data[i + channel_stride] = (f32::from(chunk[1]) - 127.5) / 128.0;
+            data[i + 2 * channel_stride] = (f32::from(chunk[2]) - 127.5) / 128.0;
         }
 
         Ok(array)

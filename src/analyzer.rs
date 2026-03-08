@@ -7,6 +7,7 @@ use crate::model_manager::HfModel;
 use bon::bon;
 use image::DynamicImage;
 use ort::ep::ExecutionProviderDispatch;
+use rayon::prelude::*;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -98,6 +99,8 @@ impl FaceAnalyzer {
 
     /// Performs the full pipeline: detection -> alignment -> embedding -> gender/age estimation.
     pub fn analyze(&self, img: &DynamicImage) -> Result<Vec<FaceAnalysis>, FaceIdError> {
+        let rgb_img = img.to_rgb8();
+
         // Detect face bounding boxes & landmarks
         let mut results = self
             .detector
@@ -118,13 +121,12 @@ impl FaceAnalyzer {
 
         // Embedding: Alignment & Batch Inference
         let (embed_crops, embed_indices): (Vec<_>, Vec<_>) = results
-            .iter()
+            .par_iter()
             .enumerate()
             .filter_map(|(idx, res)| {
                 let landmarks = res.detection.landmarks.as_ref()?;
-                // Safe conversion to fixed-size array [5; (f32, f32)]
                 let lms_array: [(f32, f32); 5] = landmarks.as_slice().try_into().ok()?;
-                let aligned = norm_crop(img, &lms_array, 112);
+                let aligned = norm_crop(&rgb_img, &lms_array, 112);
                 Some((aligned, idx))
             })
             .unzip();
@@ -142,10 +144,10 @@ impl FaceAnalyzer {
 
         // Gender/Age: Alignment & Batch Inference
         let (ga_crops, ga_indices): (Vec<_>, Vec<_>) = results
-            .iter()
+            .par_iter()
             .enumerate()
             .map(|(idx, res)| {
-                let crop = GenderAgeEstimator::align_crop(img, &res.detection.bbox, 96);
+                let crop = GenderAgeEstimator::align_crop(&rgb_img, &res.detection.bbox, 96);
                 (crop, idx)
             })
             .unzip();
