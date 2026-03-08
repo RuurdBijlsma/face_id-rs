@@ -44,8 +44,8 @@ fn bench_construction(c: &mut Criterion) {
 
 fn bench_pipeline(c: &mut Criterion) {
     let mut group = c.benchmark_group("FullAnalyze");
-    group.sample_size(20);
-    group.measurement_time(Duration::from_secs(17));
+    group.sample_size(400);
+    group.measurement_time(Duration::from_secs(35));
 
     let analyzer = block_on(
         FaceAnalyzer::from_hf()
