@@ -17,7 +17,7 @@ pub enum Gender {
     Male = 1,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GenderAge {
     pub gender: Gender,

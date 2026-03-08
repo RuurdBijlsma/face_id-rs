@@ -11,7 +11,7 @@ use rayon::prelude::*;
 use std::path::Path;
 use std::sync::Mutex;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FaceAnalysis {
     pub detection: DetectedFace,
