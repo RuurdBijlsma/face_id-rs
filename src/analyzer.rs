@@ -2,7 +2,7 @@ use crate::detector::{DetectedFace, ScrfdDetector};
 use crate::embedder::ArcFaceEmbedder;
 use crate::error::FaceIdError;
 use crate::face_align::norm_crop;
-use crate::gender_age::{GenderAge, GenderAgeEstimator};
+use crate::gender_age::{Gender, GenderAgeEstimator};
 use crate::model_manager::HfModel;
 use bon::bon;
 use image::DynamicImage;
@@ -15,8 +15,9 @@ use std::sync::Mutex;
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FaceAnalysis {
     pub detection: DetectedFace,
-    pub embedding: Option<Vec<f32>>,
-    pub gender_age: Option<GenderAge>,
+    pub embedding: Vec<f32>,
+    pub gender: Gender,
+    pub age: u8,
 }
 
 /// Performs detection, alignment, embedding, and gender/age estimation.
@@ -102,29 +103,22 @@ impl FaceAnalyzer {
         let rgb_img = img.to_rgb8();
 
         // Detect face bounding boxes & landmarks
-        let mut results = self
+        let results = self
             .detector
             .lock()
             .map_err(|_| FaceIdError::MutexPoisoned("Detector".into()))?
-            .detect(img)?
-            .into_iter()
-            .map(|det| FaceAnalysis {
-                detection: det,
-                embedding: None,
-                gender_age: None,
-            })
-            .collect::<Vec<_>>();
+            .detect(img)?;
 
         if results.is_empty() {
             return Ok(vec![]);
         }
 
         // Embedding: Alignment & Batch Inference
-        let (embed_crops, embed_indices): (Vec<_>, Vec<_>) = results
+        let (embed_crops, _): (Vec<_>, Vec<usize>) = results
             .par_iter()
             .enumerate()
             .filter_map(|(idx, res)| {
-                let landmarks = res.detection.landmarks.as_ref()?;
+                let landmarks = res.landmarks.as_ref()?;
                 let lms_array: [(f32, f32); 5] = landmarks
                     .iter()
                     .map(|&(x, y)| (x * rgb_img.width() as f32, y * rgb_img.height() as f32))
@@ -137,38 +131,50 @@ impl FaceAnalyzer {
             })
             .unzip();
 
-        if !embed_crops.is_empty() {
-            let embeddings = self
-                .embedder
-                .lock()
-                .map_err(|_| FaceIdError::MutexPoisoned("Embedder".into()))?
-                .compute_embeddings_batch(&embed_crops)?;
-            for (emb, original_idx) in embeddings.into_iter().zip(embed_indices) {
-                results[original_idx].embedding = Some(emb);
-            }
+        if embed_crops.len() != results.len() {
+            return Err(FaceIdError::InvalidModel(
+                "One or more faces missing landmarks for embedding".into(),
+            ));
         }
 
+        let embeddings = self
+            .embedder
+            .lock()
+            .map_err(|_| FaceIdError::MutexPoisoned("Embedder".into()))?
+            .compute_embeddings_batch(&embed_crops)?;
+
         // Gender/Age: Alignment & Batch Inference
-        let (ga_crops, ga_indices): (Vec<_>, Vec<_>) = results
+        let (ga_crops, _): (Vec<_>, Vec<usize>) = results
             .par_iter()
             .enumerate()
             .map(|(idx, res)| {
-                let crop = GenderAgeEstimator::align_crop(&rgb_img, &res.detection.bbox, 96);
+                let crop = GenderAgeEstimator::align_crop(&rgb_img, &res.bbox, 96);
                 (crop, idx)
             })
             .unzip();
 
-        if !ga_crops.is_empty() {
-            let ga_results = self
-                .gender_age
-                .lock()
-                .map_err(|_| FaceIdError::MutexPoisoned("GenderAge".into()))?
-                .estimate_batch(&ga_crops)?;
-            for (ga_val, original_idx) in ga_results.into_iter().zip(ga_indices) {
-                results[original_idx].gender_age = Some(ga_val);
-            }
+        let ga_results = self
+            .gender_age
+            .lock()
+            .map_err(|_| FaceIdError::MutexPoisoned("GenderAge".into()))?
+            .estimate_batch(&ga_crops)?;
+
+        if embeddings.len() != results.len() || ga_results.len() != results.len() {
+            return Err(FaceIdError::Ort("Inconsistent batch results".into()));
         }
 
-        Ok(results)
+        let final_results = results
+            .into_iter()
+            .zip(embeddings)
+            .zip(ga_results)
+            .map(|((det, emb), ga)| FaceAnalysis {
+                detection: det,
+                embedding: emb,
+                gender: ga.gender,
+                age: ga.age,
+            })
+            .collect();
+
+        Ok(final_results)
     }
 }
