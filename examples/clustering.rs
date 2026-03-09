@@ -16,7 +16,7 @@ use walkdir::WalkDir;
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let input_dir = "assets/img";
+    let input_dir = "/home/ruurd/Pictures/Photos";
     let output_base = Path::new("output_previews/clusters");
     if output_base.exists() {
         fs::remove_dir_all(output_base)?;
@@ -97,12 +97,8 @@ async fn main() -> Result<()> {
                 };
 
                 // Extract a high-quality thumbnail for the face
-                let thumbnail: RgbImage = extract_face_thumbnail(
-                    &img,
-                    &face.detection.bbox,
-                    padding,
-                    thumb_size,
-                );
+                let thumbnail: RgbImage =
+                    extract_face_thumbnail(&img, &face.detection.bbox, padding, thumb_size);
 
                 let x = (member_idx as u32 % cols) * thumb_size;
                 let y = (member_idx as u32 / cols) * thumb_size;
