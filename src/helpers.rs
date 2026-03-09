@@ -116,12 +116,7 @@ pub fn cluster_faces<P: AsRef<Path> + Sync + Send>(
 
     let (embeddings, face_refs): (Vec<Vec<f32>>, Vec<&(PathBuf, FaceAnalysis)>) = all_faces
         .iter()
-        .filter_map(|pair| {
-            pair.1
-                .embedding
-                .as_ref()
-                .map(|emb: &Vec<f32>| (emb.clone(), pair))
-        })
+        .map(|pair| (pair.1.embedding.clone(), pair))
         .unzip();
 
     if embeddings.is_empty() {

@@ -81,32 +81,26 @@ async fn test_analyzer_consistency_with_reference() -> color_eyre::Result<()> {
             }
 
             // Check Gender & Age
-            if let Some(live_ga) = &live_face.gender_age {
-                let ref_ga = &ref_face["gender_age"];
+            // Compare Gender (Enum vs String/Int)
+            let ref_gender_str = ref_face["gender"].as_str().unwrap();
+            let live_gender_str = format!("{:?}", live_face.gender);
+            assert_eq!(live_gender_str, ref_gender_str);
 
-                // Compare Gender (Enum vs String/Int)
-                let ref_gender_str = ref_ga["gender"].as_str().unwrap();
-                let live_gender_str = format!("{:?}", live_ga.gender);
-                assert_eq!(live_gender_str, ref_gender_str);
-
-                // Compare Age
-                let ref_age = ref_ga["age"].as_u64().unwrap() as u8;
-                assert_eq!(live_ga.age, ref_age);
-            }
+            // Compare Age
+            let ref_age = ref_face["age"].as_u64().unwrap() as u8;
+            assert_eq!(live_face.age, ref_age);
 
             // Check Embedding Consistency
-            if let Some(live_emb) = &live_face.embedding {
-                let ref_emb = ref_face["embedding"].as_array().unwrap();
-                assert_eq!(live_emb.len(), ref_emb.len());
+            let ref_emb = ref_face["embedding"].as_array().unwrap();
+            assert_eq!(live_face.embedding.len(), ref_emb.len());
 
-                // Check every dimension (usually 512)
-                for (dim, val) in live_emb.iter().enumerate() {
-                    let ref_val = ref_emb[dim].as_f64().unwrap() as f32;
-                    assert!(
-                        approx_eq(*val, ref_val),
-                        "Embedding dimension {dim} mismatch in {filename} for face {i}"
-                    );
-                }
+            // Check every dimension (usually 512)
+            for (dim, val) in live_face.embedding.iter().enumerate() {
+                let ref_val = ref_emb[dim].as_f64().unwrap() as f32;
+                assert!(
+                    approx_eq(*val, ref_val),
+                    "Embedding dimension {dim} mismatch in {filename} for face {i}"
+                );
             }
         }
         println!("Verified consistency for {filename}");

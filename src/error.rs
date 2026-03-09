@@ -8,9 +8,9 @@ pub enum FaceIdError {
     Io(#[from] std::io::Error),
     #[error("Image Error: {0}")]
     Image(#[from] image::ImageError),
-    #[error("ONNX Runtime Error: {0}")]
-    FailedToGetMutableSlice(String),
     #[error("Failed to get mutable slice: {0}")]
+    FailedToGetMutableSlice(String),
+    #[error("ONNX Runtime Error: {0}")]
     Ort(String),
     #[error("Mutex Poisoned Error: {0}")]
     MutexPoisoned(String),

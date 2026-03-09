@@ -38,14 +38,8 @@ async fn main() -> anyhow::Result<()> {
         println!("Face #{}", i);
         println!("  Score: {:.2}", face.detection.score);
         println!("  BBox (relative): {:?}", face.detection.bbox);
-
-        if let Some(ga) = &face.gender_age {
-            println!("  Gender: {:?}, Age: {}", ga.gender, ga.age);
-        }
-
-        if let Some(emb) = &face.embedding {
-            println!("  Embedding (first 5 dims): {:?}", &emb[..5]);
-        }
+        println!("  Gender: {:?}, Age: {}", face.gender, face.age);
+        println!("  Embedding (first 5 dims): {:?}", &face.embedding[..5]);
     }
 
     Ok(())

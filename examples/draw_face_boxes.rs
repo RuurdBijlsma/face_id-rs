@@ -55,15 +55,8 @@ async fn main() -> Result<()> {
 
         for (i, face) in analysis_results.iter().enumerate() {
             let det = face.detection.to_absolute(img.width(), img.height());
-            let ga_str = face.gender_age.as_ref().map_or_else(
-                || "N/A".to_string(),
-                |ga| format!("{:?} (Age: {})", ga.gender, ga.age),
-            );
-
-            let emb_preview = face
-                .embedding
-                .as_ref()
-                .map_or_else(|| "N/A".to_string(), |emb| format!("{:?}", &emb[..5]));
+            let ga_str = format!("{:?} (Age: {})", face.gender, face.age);
+            let emb_preview = format!("{:?}", &face.embedding[..5]);
 
             println!(
                 "      [Face #{}] Score: {:.2} | GA: {} | Embedding (5 dims): {}...",
@@ -76,10 +69,9 @@ async fn main() -> Result<()> {
             let y = b.y1 as i32;
             let w = b.width() as u32;
             let h = b.height() as u32;
-            let color = match face.gender_age.as_ref().map(|ga| ga.gender) {
-                Some(Gender::Male) => Rgb([0, 150, 255]),     // Blue
-                Some(Gender::Female) => Rgb([255, 105, 180]), // Pink
-                None => Rgb([0, 255, 0]),                     // Green
+            let color = match face.gender {
+                Gender::Male => Rgb([0, 150, 255]),     // Blue
+                Gender::Female => Rgb([255, 105, 180]), // Pink
             };
             draw_hollow_rect_mut(&mut output_img, Rect::at(x, y).of_size(w, h), color);
             if let Some(landmarks) = &det.landmarks {
@@ -92,23 +84,22 @@ async fn main() -> Result<()> {
                     );
                 }
             }
-            if let Some(ga) = &face.gender_age {
-                let gender_label = match ga.gender {
-                    Gender::Male => "M",
-                    Gender::Female => "F",
-                };
-                let label = format!("{}, {}", gender_label, ga.age);
-                let scale = PxScale::from(20.0);
-                draw_text_mut(
-                    &mut output_img,
-                    color,
-                    x,
-                    (y - 25).max(0),
-                    scale,
-                    &font,
-                    &label,
-                );
-            }
+
+            let gender_label = match face.gender {
+                Gender::Male => "M",
+                Gender::Female => "F",
+            };
+            let label = format!("{}, {}", gender_label, face.age);
+            let scale = PxScale::from(20.0);
+            draw_text_mut(
+                &mut output_img,
+                color,
+                x,
+                (y - 25).max(0),
+                scale,
+                &font,
+                &label,
+            );
         }
 
         let out_path = output_img_dir.join(format!("analysis_{filename}"));
