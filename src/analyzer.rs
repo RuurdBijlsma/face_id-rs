@@ -113,29 +113,26 @@ impl FaceAnalyzer {
             return Ok(vec![]);
         }
 
-        // Embedding: Alignment & Batch Inference
-        let (embed_crops, _): (Vec<_>, Vec<usize>) = results
+        let embed_crops: Vec<_> = results
             .par_iter()
-            .enumerate()
-            .filter_map(|(idx, res)| {
-                let landmarks = res.landmarks.as_ref()?;
+            .map(|res| {
+                let landmarks = res.landmarks.as_ref().ok_or_else(|| {
+                    FaceIdError::InvalidModel(
+                        "One or more faces missing landmarks for embedding".into(),
+                    )
+                })?;
                 let lms_array: [(f32, f32); 5] = landmarks
                     .iter()
                     .map(|&(x, y)| (x * rgb_img.width() as f32, y * rgb_img.height() as f32))
                     .collect::<Vec<_>>()
                     .as_slice()
                     .try_into()
-                    .ok()?;
-                let aligned = norm_crop(&rgb_img, &lms_array, 112);
-                Some((aligned, idx))
+                    .map_err(|_| {
+                        FaceIdError::InvalidModel("Landmarks were not 5-point keypoints".into())
+                    })?;
+                Ok(norm_crop(&rgb_img, &lms_array, 112))
             })
-            .unzip();
-
-        if embed_crops.len() != results.len() {
-            return Err(FaceIdError::InvalidModel(
-                "One or more faces missing landmarks for embedding".into(),
-            ));
-        }
+            .collect::<Result<Vec<_>, FaceIdError>>()?;
 
         let embeddings = self
             .embedder
@@ -144,14 +141,10 @@ impl FaceAnalyzer {
             .compute_embeddings_batch(&embed_crops)?;
 
         // Gender/Age: Alignment & Batch Inference
-        let (ga_crops, _): (Vec<_>, Vec<usize>) = results
+        let ga_crops: Vec<_> = results
             .par_iter()
-            .enumerate()
-            .map(|(idx, res)| {
-                let crop = GenderAgeEstimator::align_crop(&rgb_img, &res.bbox, 96);
-                (crop, idx)
-            })
-            .unzip();
+            .map(|res| GenderAgeEstimator::align_crop(&rgb_img, &res.bbox, 96))
+            .collect();
 
         let ga_results = self
             .gender_age

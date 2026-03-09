@@ -40,15 +40,9 @@
 //!         println!("    Box: {:?}", &face.detection.bbox); // Relative coordinates [0, 1]
 //!         println!("    Score: {:?}", &face.detection.score); // Confidence score of detection
 //!         println!("    Landmarks: {:?}", &face.detection.landmarks); // location of eyes, mouth, nose (relative)
-//!         
-//!         if let Some(ga) = &face.gender_age {
-//!             println!("    Gender: {:?}", ga.gender);
-//!             println!("    Age: {:?}", ga.age);
-//!         }
-//!         
-//!         if let Some(x) = &face.embedding {
-//!             println!("    Embedding [..5]: {:?}", &x[..5]);
-//!         }
+//!         println!("    Gender: {:?}", face.gender);
+//!         println!("    Age: {:?}", face.age);
+//!         println!("    Embedding [..5]: {:?}", &face.embedding[..5]);
 //!     }
 //!     Ok(())
 //! }
