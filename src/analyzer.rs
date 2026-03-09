@@ -11,16 +11,25 @@ use rayon::prelude::*;
 use std::path::Path;
 use std::sync::Mutex;
 
+/// Result of face analysis.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FaceAnalysis {
+    /// The original detection details (bbox, landmarks, score).
     pub detection: DetectedFace,
+    /// A 512-dimensional normalized embedding vector.
     pub embedding: Vec<f32>,
+    /// Estimated gender.
     pub gender: Gender,
+    /// Estimated age in years.
     pub age: u8,
 }
 
 /// Performs detection, alignment, embedding, and gender/age estimation.
+///
+/// This struct wraps multiple ONNX Runtime sessions. These sessions are wrapped in `Mutex`
+/// because their inference methods requires mutable access. Accessing the analyzer from
+/// multiple threads will involve locking.
 pub struct FaceAnalyzer {
     pub detector: Mutex<ScrfdDetector>,
     pub embedder: Mutex<ArcFaceEmbedder>,
@@ -125,7 +134,6 @@ impl FaceAnalyzer {
                     .iter()
                     .map(|&(x, y)| (x * rgb_img.width() as f32, y * rgb_img.height() as f32))
                     .collect::<Vec<_>>()
-                    .as_slice()
                     .try_into()
                     .map_err(|_| {
                         FaceIdError::InvalidModel("Landmarks were not 5-point keypoints".into())
@@ -153,7 +161,12 @@ impl FaceAnalyzer {
             .estimate_batch(&ga_crops)?;
 
         if embeddings.len() != results.len() || ga_results.len() != results.len() {
-            return Err(FaceIdError::Ort("Inconsistent batch results".into()));
+            return Err(FaceIdError::Ort(format!(
+                "Inconsistent batch results: expected {}, got {} embeddings and {} ga results",
+                results.len(),
+                embeddings.len(),
+                ga_results.len()
+            )));
         }
 
         let final_results = results
