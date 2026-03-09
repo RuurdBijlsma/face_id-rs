@@ -4,6 +4,7 @@ use color_eyre::eyre::Result;
 use face_id::analyzer::{FaceAnalysis, FaceAnalyzer};
 use face_id::helpers::{cluster_faces, extract_face_thumbnail};
 use image::RgbImage;
+use ort::ep::CUDA;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::fs;
@@ -15,7 +16,7 @@ use walkdir::WalkDir;
 async fn main() -> Result<()> {
     color_eyre::install()?;
 
-    let input_dir = "/home/ruurd/Pictures/Photos";
+    let input_dir = "assets/img";
     let output_base = Path::new("output_previews/clusters");
     if output_base.exists() {
         fs::remove_dir_all(output_base)?;
@@ -23,7 +24,10 @@ async fn main() -> Result<()> {
     fs::create_dir_all(output_base)?;
 
     println!("Initializing models...");
-    let analyzer = FaceAnalyzer::from_hf().build().await?;
+    let analyzer = FaceAnalyzer::from_hf()
+        .with_execution_providers(&[CUDA::default().build().error_on_failure()])
+        .build()
+        .await?;
 
     println!("Scanning directory: {input_dir}");
     let image_paths: Vec<PathBuf> = WalkDir::new(input_dir)
@@ -60,7 +64,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    println!("Writing cluster thumbnails to disk...");
+    println!("Writing cluster grid images to disk...");
     clusters
         .par_iter()
         .for_each(|(label, members): (&i32, &Vec<(PathBuf, FaceAnalysis)>)| {
@@ -70,8 +74,18 @@ async fn main() -> Result<()> {
                 format!("cluster_{label}")
             };
 
-            let cluster_dir = output_base.join(&cluster_name);
-            fs::create_dir_all(&cluster_dir).unwrap();
+            let thumb_size = 256;
+            let padding = 1.6;
+            let count = members.len();
+            if count == 0 {
+                return;
+            }
+
+            // Determine grid dimensions
+            let cols = (count as f32).sqrt().ceil() as u32;
+            let rows = (count as f32 / cols as f32).ceil() as u32;
+
+            let mut grid_img = RgbImage::new(cols * thumb_size, rows * thumb_size);
 
             for (member_idx, (path, face)) in members.iter().enumerate() {
                 let img = match image::open(path) {
@@ -86,14 +100,18 @@ async fn main() -> Result<()> {
                 let thumbnail: RgbImage = extract_face_thumbnail(
                     &img,
                     &face.detection.bbox,
-                    1.6, // padding factor
-                    256, // output size
+                    padding,
+                    thumb_size,
                 );
 
-                let file_stem = path.file_stem().unwrap().to_string_lossy();
-                let out_name = format!("{file_stem}_face_{member_idx}.jpg");
-                thumbnail.save(cluster_dir.join(out_name)).unwrap();
+                let x = (member_idx as u32 % cols) * thumb_size;
+                let y = (member_idx as u32 / cols) * thumb_size;
+
+                image::imageops::replace(&mut grid_img, &thumbnail, x as i64, y as i64);
             }
+
+            let out_name = format!("{cluster_name}.jpg");
+            grid_img.save(output_base.join(out_name)).unwrap();
         });
 
     println!("Done! Check output_previews/clusters");
