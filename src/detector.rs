@@ -450,7 +450,13 @@ impl ScrfdDetector {
         key: &str,
     ) -> Result<Array2<f32>, FaceIdError> {
         let array = outputs[key].try_extract_array::<f32>()?;
-        if array.ndim() == 3 && array.shape()[0] == 1 {
+        if array.ndim() == 3 {
+            if array.shape()[0] != 1 {
+                return Err(FaceIdError::Ort(format!(
+                    "Expected batch size 1 for detector output {key}, got {}",
+                    array.shape()[0]
+                )));
+            }
             Ok(array
                 .view()
                 .to_shape((array.shape()[1], array.shape()[2]))?

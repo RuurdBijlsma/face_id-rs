@@ -62,6 +62,15 @@ impl ArcFaceEmbedder {
             .try_extract_array::<f32>()?
             .to_owned()
             .into_dimensionality::<ndarray::Ix2>()?;
+
+        let expected_batch_size = aligned_imgs.len();
+        if output_tensor.shape()[0] != expected_batch_size {
+            return Err(FaceIdError::Ort(format!(
+                "Embedder batch size mismatch: expected {expected_batch_size}, got {}",
+                output_tensor.shape()[0]
+            )));
+        }
+
         Self::l2_normalize_batch(&mut output_tensor);
 
         let batch_size = output_tensor.shape()[0];

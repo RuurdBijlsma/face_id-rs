@@ -76,6 +76,14 @@ impl GenderAgeEstimator {
 
         let output_tensor = outputs[0].try_extract_array::<f32>()?;
         let batch_size = face_imgs.len();
+
+        if output_tensor.ndim() != 2 || output_tensor.shape()[0] != batch_size || output_tensor.shape()[1] != 3 {
+             return Err(FaceIdError::Ort(format!(
+                "GenderAge output shape mismatch: expected [{batch_size}, 3], got {:?}",
+                output_tensor.shape()
+            )));
+        }
+
         let mut results = Vec::with_capacity(batch_size);
 
         for i in 0..batch_size {
