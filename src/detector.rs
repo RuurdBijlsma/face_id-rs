@@ -345,7 +345,6 @@ impl ScrfdDetector {
             FaceIdError::FailedToGetMutableSlice("Failed to get mutable slice from array".into())
         })?;
 
-        // Optimized HWC -> NCHW conversion with normalization
         // Buffalo-L SCRFD expects: (x - 127.5) / 128.0
         let channel_stride = h * w;
         for (i, chunk) in raw.chunks_exact(3).enumerate() {
