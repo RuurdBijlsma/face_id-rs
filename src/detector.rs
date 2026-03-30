@@ -27,11 +27,10 @@ impl DetectedFace {
         let h = height as f32;
         Self {
             bbox: self.bbox.scale(width, height),
-            landmarks: self.landmarks.as_ref().map(|lms| {
-                lms.iter()
-                    .map(|&(x, y)| (x * w, y * h))
-                    .collect()
-            }),
+            landmarks: self
+                .landmarks
+                .as_ref()
+                .map(|lms| lms.iter().map(|&(x, y)| (x * w, y * h)).collect()),
             ..*self
         }
     }
@@ -390,10 +389,14 @@ impl ScrfdDetector {
                 let anchor_x = anchor[0];
                 let anchor_y = anchor[1];
 
-                let x1 = (dist[0].mul_add(-stride_f, anchor_x) - params.x_offset) / params.resized_width;
-                let y1 = (dist[1].mul_add(-stride_f, anchor_y) - params.y_offset) / params.resized_height;
-                let x2 = (dist[2].mul_add(stride_f, anchor_x) - params.x_offset) / params.resized_width;
-                let y2 = (dist[3].mul_add(stride_f, anchor_y) - params.y_offset) / params.resized_height;
+                let x1 =
+                    (dist[0].mul_add(-stride_f, anchor_x) - params.x_offset) / params.resized_width;
+                let y1 = (dist[1].mul_add(-stride_f, anchor_y) - params.y_offset)
+                    / params.resized_height;
+                let x2 =
+                    (dist[2].mul_add(stride_f, anchor_x) - params.x_offset) / params.resized_width;
+                let y2 =
+                    (dist[3].mul_add(stride_f, anchor_y) - params.y_offset) / params.resized_height;
 
                 let landmarks = kps.as_ref().map(|kps_tensor| {
                     let kps_dist = kps_tensor.slice(s![i, ..]);
