@@ -38,6 +38,7 @@ pub struct FaceAnalyzer {
 
 #[bon]
 impl FaceAnalyzer {
+    #[cfg(feature = "hf-hub")]
     #[builder(finish_fn = build)]
     pub async fn from_hf(
         #[builder(default = HfModel::default_detector())] detector_model: HfModel,

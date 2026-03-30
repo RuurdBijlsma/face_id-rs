@@ -1,4 +1,5 @@
 use crate::error::FaceIdError;
+#[cfg(feature = "hf-hub")]
 use hf_hub::api::tokio::Api;
 use std::path::PathBuf;
 

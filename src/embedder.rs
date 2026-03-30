@@ -1,4 +1,5 @@
 use crate::error::FaceIdError;
+#[cfg(feature = "hf-hub")]
 use crate::model_manager::{HfModel, get_hf_model};
 use bon::bon;
 use image::{ImageBuffer, Rgb};
@@ -15,6 +16,7 @@ pub struct ArcFaceEmbedder {
 
 #[bon]
 impl ArcFaceEmbedder {
+    #[cfg(feature = "hf-hub")]
     #[builder(finish_fn = build)]
     pub async fn from_hf(
         #[builder(default = HfModel::default_embedder())] model: HfModel,

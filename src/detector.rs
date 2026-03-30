@@ -1,4 +1,5 @@
 use crate::error::FaceIdError;
+#[cfg(feature = "hf-hub")]
 use crate::model_manager::{HfModel, get_hf_model};
 use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
@@ -108,6 +109,7 @@ pub struct ScrfdDetector {
 
 #[bon]
 impl ScrfdDetector {
+    #[cfg(feature = "hf-hub")]
     #[builder(finish_fn = build)]
     pub async fn from_hf(
         #[builder(default = HfModel::default_detector())] model: HfModel,

@@ -1,6 +1,7 @@
 #![allow(clippy::similar_names)]
 use crate::detector::BoundingBox;
 use crate::error::FaceIdError;
+#[cfg(feature = "hf-hub")]
 use crate::model_manager::{HfModel, get_hf_model};
 use bon::bon;
 use image::{DynamicImage, ImageBuffer, Rgb};
@@ -31,6 +32,7 @@ pub struct GenderAgeEstimator {
 
 #[bon]
 impl GenderAgeEstimator {
+    #[cfg(feature = "hf-hub")]
     #[builder(finish_fn = build)]
     pub async fn from_hf(
         #[builder(default = HfModel::default_gender_age())] model: HfModel,
