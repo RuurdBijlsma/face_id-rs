@@ -1,4 +1,5 @@
 use crate::error::FaceIdError;
+#[cfg(feature = "hf-hub")]
 use crate::model_manager::{HfModel, get_hf_model};
 use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
@@ -26,11 +27,10 @@ impl DetectedFace {
         let h = height as f32;
         Self {
             bbox: self.bbox.scale(width, height),
-            landmarks: self.landmarks.as_ref().map(|lms| {
-                lms.iter()
-                    .map(|&(x, y)| (x * w, y * h))
-                    .collect()
-            }),
+            landmarks: self
+                .landmarks
+                .as_ref()
+                .map(|lms| lms.iter().map(|&(x, y)| (x * w, y * h)).collect()),
             ..*self
         }
     }
@@ -108,6 +108,7 @@ pub struct ScrfdDetector {
 
 #[bon]
 impl ScrfdDetector {
+    #[cfg(feature = "hf-hub")]
     #[builder(finish_fn = build)]
     pub async fn from_hf(
         #[builder(default = HfModel::default_detector())] model: HfModel,
@@ -345,7 +346,6 @@ impl ScrfdDetector {
             FaceIdError::FailedToGetMutableSlice("Failed to get mutable slice from array".into())
         })?;
 
-        // Optimized HWC -> NCHW conversion with normalization
         // Buffalo-L SCRFD expects: (x - 127.5) / 128.0
         let channel_stride = h * w;
         for (i, chunk) in raw.chunks_exact(3).enumerate() {
@@ -389,10 +389,14 @@ impl ScrfdDetector {
                 let anchor_x = anchor[0];
                 let anchor_y = anchor[1];
 
-                let x1 = (dist[0].mul_add(-stride_f, anchor_x) - params.x_offset) / params.resized_width;
-                let y1 = (dist[1].mul_add(-stride_f, anchor_y) - params.y_offset) / params.resized_height;
-                let x2 = (dist[2].mul_add(stride_f, anchor_x) - params.x_offset) / params.resized_width;
-                let y2 = (dist[3].mul_add(stride_f, anchor_y) - params.y_offset) / params.resized_height;
+                let x1 =
+                    (dist[0].mul_add(-stride_f, anchor_x) - params.x_offset) / params.resized_width;
+                let y1 = (dist[1].mul_add(-stride_f, anchor_y) - params.y_offset)
+                    / params.resized_height;
+                let x2 =
+                    (dist[2].mul_add(stride_f, anchor_x) - params.x_offset) / params.resized_width;
+                let y2 =
+                    (dist[3].mul_add(stride_f, anchor_y) - params.y_offset) / params.resized_height;
 
                 let landmarks = kps.as_ref().map(|kps_tensor| {
                     let kps_dist = kps_tensor.slice(s![i, ..]);

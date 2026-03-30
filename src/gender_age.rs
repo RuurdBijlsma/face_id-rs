@@ -1,6 +1,7 @@
 #![allow(clippy::similar_names)]
 use crate::detector::BoundingBox;
 use crate::error::FaceIdError;
+#[cfg(feature = "hf-hub")]
 use crate::model_manager::{HfModel, get_hf_model};
 use bon::bon;
 use image::{DynamicImage, ImageBuffer, Rgb};
@@ -31,6 +32,7 @@ pub struct GenderAgeEstimator {
 
 #[bon]
 impl GenderAgeEstimator {
+    #[cfg(feature = "hf-hub")]
     #[builder(finish_fn = build)]
     pub async fn from_hf(
         #[builder(default = HfModel::default_gender_age())] model: HfModel,
@@ -77,8 +79,11 @@ impl GenderAgeEstimator {
         let output_tensor = outputs[0].try_extract_array::<f32>()?;
         let batch_size = face_imgs.len();
 
-        if output_tensor.ndim() != 2 || output_tensor.shape()[0] != batch_size || output_tensor.shape()[1] != 3 {
-             return Err(FaceIdError::Ort(format!(
+        if output_tensor.ndim() != 2
+            || output_tensor.shape()[0] != batch_size
+            || output_tensor.shape()[1] != 3
+        {
+            return Err(FaceIdError::Ort(format!(
                 "GenderAge output shape mismatch: expected [{batch_size}, 3], got {:?}",
                 output_tensor.shape()
             )));
