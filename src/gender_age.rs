@@ -36,9 +36,10 @@ impl GenderAgeEstimator {
     #[builder(finish_fn = build)]
     pub async fn from_hf(
         #[builder(default = HfModel::default_gender_age())] model: HfModel,
+        cache_dir: Option<&Path>,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
     ) -> Result<Self, FaceIdError> {
-        let model_path = get_hf_model(model).await?;
+        let model_path = get_hf_model(model, cache_dir).await?;
         Self::builder(model_path)
             .with_execution_providers(with_execution_providers)
             .build()

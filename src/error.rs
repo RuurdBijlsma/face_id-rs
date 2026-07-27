@@ -1,5 +1,5 @@
 #[cfg(feature = "hf-hub")]
-use hf_hub::api::tokio::ApiError;
+use hf_hub::HFError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -34,8 +34,8 @@ impl<T> From<ort::Error<T>> for FaceIdError {
 }
 
 #[cfg(feature = "hf-hub")]
-impl From<ApiError> for FaceIdError {
-    fn from(value: ApiError) -> Self {
+impl From<HFError> for FaceIdError {
+    fn from(value: HFError) -> Self {
         Self::HfHub(value.to_string())
     }
 }
