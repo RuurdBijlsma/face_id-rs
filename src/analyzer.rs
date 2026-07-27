@@ -47,6 +47,7 @@ impl FaceAnalyzer {
         #[builder(default = (640, 640))] detector_input_size: (u32, u32),
         #[builder(default = 0.5)] detector_score_threshold: f32,
         #[builder(default = 0.4)] detector_iou_threshold: f32,
+        cache_dir: Option<&Path>,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
     ) -> Result<Self, FaceIdError> {
         let detector = ScrfdDetector::from_hf()
@@ -54,16 +55,19 @@ impl FaceAnalyzer {
             .score_threshold(detector_score_threshold)
             .iou_threshold(detector_iou_threshold)
             .model(detector_model)
+            .maybe_cache_dir(cache_dir)
             .with_execution_providers(with_execution_providers)
             .build()
             .await?;
         let embedder = ArcFaceEmbedder::from_hf()
             .model(embedder_model)
+            .maybe_cache_dir(cache_dir)
             .with_execution_providers(with_execution_providers)
             .build()
             .await?;
         let gender_age = GenderAgeEstimator::from_hf()
             .model(gender_age_model)
+            .maybe_cache_dir(cache_dir)
             .with_execution_providers(with_execution_providers)
             .build()
             .await?;

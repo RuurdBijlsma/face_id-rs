@@ -115,9 +115,10 @@ impl ScrfdDetector {
         #[builder(default = (640, 640))] input_size: (u32, u32),
         #[builder(default = 0.5)] score_threshold: f32,
         #[builder(default = 0.4)] iou_threshold: f32,
+        cache_dir: Option<&Path>,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
     ) -> Result<Self, FaceIdError> {
-        let model_path = get_hf_model(model).await?;
+        let model_path = get_hf_model(model, cache_dir).await?;
         Self::builder(model_path)
             .input_size(input_size)
             .score_threshold(score_threshold)

@@ -1,7 +1,7 @@
 use crate::error::FaceIdError;
 #[cfg(feature = "hf-hub")]
-use hf_hub::api::tokio::Api;
-use std::path::PathBuf;
+use hf_hub::{HFClient, split_id};
+use std::path::{Path, PathBuf};
 
 pub struct HfModel {
     pub id: String,
@@ -35,9 +35,18 @@ impl HfModel {
 }
 
 #[cfg(feature = "hf-hub")]
-pub async fn get_hf_model(model: HfModel) -> Result<PathBuf, FaceIdError> {
-    let api = Api::new()?;
-    let repo = api.model(model.id);
+pub async fn get_hf_model(
+    model: HfModel,
+    cache_dir: Option<&Path>,
+) -> Result<PathBuf, FaceIdError> {
+    let client = match cache_dir {
+        Some(dir) => HFClient::builder().cache_dir(dir).build()?,
+        None => HFClient::new()?,
+    };
 
-    Ok(repo.get(&model.file).await?)
+    let (owner, name) = split_id(&model.id);
+    let repo = client.model(owner, name);
+
+    tracing::info!("Fetching {}", &model.file);
+    Ok(repo.download_file().filename(&model.file).send().await?)
 }

@@ -1,6 +1,6 @@
 [package]
 name = "face_id"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 exclude = ["assets", ".github", "output_previews", "justfile"]
 description = "Face detection (bounding boxes, eyes/nose/mouth markers), and facial recognition (embeddings)."
@@ -12,26 +12,28 @@ documentation = "https://docs.rs/face_id"
 [dependencies]
 ort = { version = "2.0.0-rc.12", features = ["ndarray"] }
 ndarray = "0.17.2"
-nalgebra = "0.34.1"
-thiserror = "2.0.18"
-image = { version = "0.25.9", features = ["rayon"] }
-serde = { version = "1.0.228", optional = true, features = ["derive"] }
-serde_json = { version = "1.0.149", optional = true }
-hf-hub = { version = "0.5.0", features = ["tokio"], optional = true }
-bon = "3.9.0"
-rayon = "1.10"
+nalgebra = "0.35.0"
+thiserror = "2.0.19"
+image = { version = "0.25.10", features = ["rayon"] }
+serde = { version = "1.0.229", optional = true, features = ["derive"] }
+serde_json = { version = "1.0.151", optional = true }
+hf-hub = { version = "1.0.0", optional = true }
+bon = "3.9.3"
+rayon = "1.12.0"
 hdbscan = { version = "0.12.0", optional = true }
+tracing = {version = "0.1.44", optional = true}
 
 [dev-dependencies]
 color-eyre = "0.6.5"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = { version = "1.0.149" }
-imageproc = "0.26.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.151" }
+imageproc = "0.27.0"
 criterion = { version = "0.8.1", features = ["html_reports"] }
 ab_glyph = "0.2.32"
-tokio = { version = "1.50", features = ["rt", "macros"] }
+tokio = { version = "1.53.1", features = ["rt", "macros"] }
 walkdir = "2.5.0"
 hdbscan = "0.12.0"
+tracing-subscriber = "0.3.23"
 
 [features]
 default = ["download-binaries", "copy-dylibs", "hf-hub", "serde", "clustering"]
@@ -40,7 +42,7 @@ clustering = ["dep:hdbscan"]
 download-binaries = ["ort/download-binaries"]
 copy-dylibs = ["ort/copy-dylibs"]
 load-dynamic = ["ort/load-dynamic"]
-hf-hub = ["dep:hf-hub"] # -> Enable downloading models from HuggingFace, relies on `tokio`
+hf-hub = ["dep:hf-hub", "dep:tracing"] # -> Enable downloading models from HuggingFace, relies on `tokio`
 # ort execution providers
 cuda = ["ort/cuda"]
 tensorrt = ["ort/tensorrt"]
