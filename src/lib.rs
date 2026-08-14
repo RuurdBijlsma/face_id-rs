@@ -23,7 +23,7 @@
 //! The [`analyzer::FaceAnalyzer`] is the main entry point. It manages the sub-models
 //! and performs batch inference for efficiency.
 //!
-//! ```rust
+//! ```rust,no_run
 //! use face_id::analyzer::FaceAnalyzer;
 //!
 //! #[tokio::main]
@@ -172,7 +172,7 @@
 //! This crate supports a variety of Execution Providers (EPs) via `ort`. To use a specific GPU
 //! backend, enable the corresponding feature in your `Cargo.toml` (e.g., `cuda`, `tensorrt`, `coreml`).
 //!
-//! ```rust
+//! ```rust,ignore
 //! use face_id::analyzer::FaceAnalyzer;
 //! use ort::ep::{DirectML, TensorRT, CUDA, CoreML};
 //!
@@ -213,3 +213,6 @@ pub mod face_align;
 pub mod gender_age;
 pub mod helpers;
 pub mod model_manager;
+pub mod onnx;
+
+pub use ort::session::builder::GraphOptimizationLevel;
