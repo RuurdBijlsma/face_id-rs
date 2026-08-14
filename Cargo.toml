@@ -10,7 +10,7 @@ license-file = "LICENSE"
 documentation = "https://docs.rs/face_id"
 
 [dependencies]
-ort = { version = "2.0.0-rc.12", features = ["ndarray"] }
+ort = { version = "2.0.0-rc.13", features = ["ndarray"] }
 ndarray = "0.17.2"
 nalgebra = "0.35.0"
 thiserror = "2.0.19"
@@ -67,3 +67,7 @@ azure = ["ort/azure"]
 [[bench]]
 name = "face_id"
 harness = false
+
+[[example]]
+name = "clustering"
+required-features = ["cuda"]
