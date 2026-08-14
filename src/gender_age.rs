@@ -3,11 +3,12 @@ use crate::detector::BoundingBox;
 use crate::error::FaceIdError;
 #[cfg(feature = "hf-hub")]
 use crate::model_manager::{HfModel, get_hf_model};
+use crate::onnx::OnnxSession;
 use bon::bon;
 use image::{DynamicImage, ImageBuffer, Rgb};
 use ndarray::Array4;
 use ort::ep::ExecutionProviderDispatch;
-use ort::session::Session;
+use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Value;
 use std::path::Path;
 
@@ -26,7 +27,7 @@ pub struct GenderAge {
 }
 
 pub struct GenderAgeEstimator {
-    pub session: Session,
+    pub onnx: OnnxSession,
     pub input_name: String,
 }
 
@@ -38,10 +39,18 @@ impl GenderAgeEstimator {
         #[builder(default = HfModel::default_gender_age())] model: HfModel,
         cache_dir: Option<&Path>,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
+        with_intra_threads: Option<usize>,
+        with_inter_threads: Option<usize>,
+        with_memory_pattern: Option<bool>,
+        with_optimization_level: Option<GraphOptimizationLevel>,
     ) -> Result<Self, FaceIdError> {
         let model_path = get_hf_model(model, cache_dir).await?;
         Self::builder(model_path)
             .with_execution_providers(with_execution_providers)
+            .maybe_with_intra_threads(with_intra_threads)
+            .maybe_with_inter_threads(with_inter_threads)
+            .maybe_with_memory_pattern(with_memory_pattern)
+            .maybe_with_optimization_level(with_optimization_level)
             .build()
     }
 
@@ -49,17 +58,23 @@ impl GenderAgeEstimator {
     pub fn new(
         #[builder(start_fn)] model_path: impl AsRef<Path>,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
+        with_intra_threads: Option<usize>,
+        with_inter_threads: Option<usize>,
+        with_memory_pattern: Option<bool>,
+        with_optimization_level: Option<GraphOptimizationLevel>,
     ) -> Result<Self, FaceIdError> {
-        let session = Session::builder()?
-            .with_execution_providers(with_execution_providers)?
-            .commit_from_file(model_path)?;
+        let onnx = OnnxSession::new(
+            model_path,
+            with_execution_providers,
+            with_optimization_level,
+            with_intra_threads,
+            with_inter_threads,
+            with_memory_pattern,
+        )?;
 
-        let input_name = session.inputs()[0].name().to_string();
+        let input_name = onnx.session.inputs()[0].name().to_string();
 
-        Ok(Self {
-            session,
-            input_name,
-        })
+        Ok(Self { onnx, input_name })
     }
 
     /// Estimates gender and age for a batch of cropped face images.
@@ -74,6 +89,7 @@ impl GenderAgeEstimator {
         let input_tensor = Self::create_input_tensor_batch(face_imgs)?;
         let input_value = Value::from_array(input_tensor)?;
         let outputs = self
+            .onnx
             .session
             .run(ort::inputs![&self.input_name => input_value])?;
 

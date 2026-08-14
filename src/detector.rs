@@ -1,14 +1,13 @@
 use crate::error::FaceIdError;
 #[cfg(feature = "hf-hub")]
 use crate::model_manager::{HfModel, get_hf_model};
+use crate::onnx::OnnxSession;
 use bon::bon;
 use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use ndarray::{Array2, Array4, Ix2, s};
 use ort::ep::ExecutionProviderDispatch;
-use ort::{
-    session::{Session, SessionOutputs},
-    value::Value,
-};
+use ort::session::{Session, SessionOutputs, builder::GraphOptimizationLevel};
+use ort::value::Value;
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,7 +98,7 @@ pub struct DetectorConfig {
 }
 
 pub struct ScrfdDetector {
-    pub session: Session,
+    pub onnx: OnnxSession,
     pub config: DetectorConfig,
     pub anchors: Vec<Array2<f32>>,
     pub output_maps: Vec<OutputMap>,
@@ -117,6 +116,10 @@ impl ScrfdDetector {
         #[builder(default = 0.4)] iou_threshold: f32,
         cache_dir: Option<&Path>,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
+        with_intra_threads: Option<usize>,
+        with_inter_threads: Option<usize>,
+        with_memory_pattern: Option<bool>,
+        with_optimization_level: Option<GraphOptimizationLevel>,
     ) -> Result<Self, FaceIdError> {
         let model_path = get_hf_model(model, cache_dir).await?;
         Self::builder(model_path)
@@ -124,6 +127,10 @@ impl ScrfdDetector {
             .score_threshold(score_threshold)
             .iou_threshold(iou_threshold)
             .with_execution_providers(with_execution_providers)
+            .maybe_with_intra_threads(with_intra_threads)
+            .maybe_with_inter_threads(with_inter_threads)
+            .maybe_with_memory_pattern(with_memory_pattern)
+            .maybe_with_optimization_level(with_optimization_level)
             .build()
     }
 
@@ -134,21 +141,31 @@ impl ScrfdDetector {
         #[builder(default = 0.5)] score_threshold: f32,
         #[builder(default = 0.4)] iou_threshold: f32,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
+        with_intra_threads: Option<usize>,
+        with_inter_threads: Option<usize>,
+        with_memory_pattern: Option<bool>,
+        with_optimization_level: Option<GraphOptimizationLevel>,
     ) -> Result<Self, FaceIdError> {
-        let session = Session::builder()?
-            .with_execution_providers(with_execution_providers)?
-            .commit_from_file(model_path)?;
-        let input_name = session.inputs()[0].name().to_string();
+        let onnx = OnnxSession::new(
+            model_path,
+            with_execution_providers,
+            with_optimization_level,
+            with_intra_threads,
+            with_inter_threads,
+            with_memory_pattern,
+        )?;
+        let input_name = onnx.session.inputs()[0].name().to_string();
         let config = DetectorConfig {
             input_size,
             score_threshold,
             iou_threshold,
         };
 
-        let output_maps = Self::parse_output_maps(&session)?;
+        let output_maps = Self::parse_output_maps(&onnx.session)?;
 
         let first_map = &output_maps[0];
-        let score_output = session
+        let score_output = onnx
+            .session
             .outputs()
             .iter()
             .find(|o| o.name() == first_map.score_name)
@@ -179,7 +196,7 @@ impl ScrfdDetector {
             .collect();
 
         Ok(Self {
-            session,
+            onnx,
             config,
             anchors,
             output_maps,
@@ -271,7 +288,7 @@ impl ScrfdDetector {
         let input_tensor = self.create_input_tensor(&processed_img)?;
         let input_value = Value::from_array(input_tensor)?;
         let inputs = ort::inputs![&self.input_name => input_value];
-        let outputs = self.session.run(inputs)?;
+        let outputs = self.onnx.session.run(inputs)?;
 
         Self::postprocess(
             &outputs,

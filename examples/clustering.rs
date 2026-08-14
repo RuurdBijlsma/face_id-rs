@@ -1,4 +1,8 @@
-#![allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#![allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
 
 use color_eyre::eyre::Result;
 use face_id::analyzer::{FaceAnalysis, FaceAnalyzer};
@@ -103,7 +107,7 @@ async fn main() -> Result<()> {
                 let x = (member_idx as u32 % cols) * thumb_size;
                 let y = (member_idx as u32 / cols) * thumb_size;
 
-                image::imageops::replace(&mut grid_img, &thumbnail, x as i64, y as i64);
+                image::imageops::replace(&mut grid_img, &thumbnail, i64::from(x), i64::from(y));
             }
 
             let out_name = format!("{cluster_name}.jpg");

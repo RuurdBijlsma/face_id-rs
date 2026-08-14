@@ -20,9 +20,9 @@ async fn main() -> Result<()> {
 
     for (i, face) in faces.iter().enumerate() {
         println!("Face {i}");
-        println!("    Box: {:?}", &face.detection.bbox);
-        println!("    Score: {:?}", &face.detection.score); // Confidence score of detection
-        println!("    Landmarks: {:?}", &face.detection.landmarks); // location of eyes, mouth, nose
+        println!("    Box: {:?}", face.detection.bbox);
+        println!("    Score: {:?}", face.detection.score); // Confidence score of detection
+        println!("    Landmarks: {:?}", face.detection.landmarks); // location of eyes, mouth, nose
 
         println!("    Gender: {:?}", face.gender);
         println!("    Age: {:?}", face.age);

@@ -7,6 +7,7 @@ use crate::model_manager::HfModel;
 use bon::bon;
 use image::DynamicImage;
 use ort::ep::ExecutionProviderDispatch;
+use ort::session::builder::GraphOptimizationLevel;
 use rayon::prelude::*;
 use std::path::Path;
 use std::sync::Mutex;
@@ -49,6 +50,10 @@ impl FaceAnalyzer {
         #[builder(default = 0.4)] detector_iou_threshold: f32,
         cache_dir: Option<&Path>,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
+        with_intra_threads: Option<usize>,
+        with_inter_threads: Option<usize>,
+        with_memory_pattern: Option<bool>,
+        with_optimization_level: Option<GraphOptimizationLevel>,
     ) -> Result<Self, FaceIdError> {
         let detector = ScrfdDetector::from_hf()
             .input_size(detector_input_size)
@@ -57,18 +62,30 @@ impl FaceAnalyzer {
             .model(detector_model)
             .maybe_cache_dir(cache_dir)
             .with_execution_providers(with_execution_providers)
+            .maybe_with_intra_threads(with_intra_threads)
+            .maybe_with_inter_threads(with_inter_threads)
+            .maybe_with_memory_pattern(with_memory_pattern)
+            .maybe_with_optimization_level(with_optimization_level)
             .build()
             .await?;
         let embedder = ArcFaceEmbedder::from_hf()
             .model(embedder_model)
             .maybe_cache_dir(cache_dir)
             .with_execution_providers(with_execution_providers)
+            .maybe_with_intra_threads(with_intra_threads)
+            .maybe_with_inter_threads(with_inter_threads)
+            .maybe_with_memory_pattern(with_memory_pattern)
+            .maybe_with_optimization_level(with_optimization_level)
             .build()
             .await?;
         let gender_age = GenderAgeEstimator::from_hf()
             .model(gender_age_model)
             .maybe_cache_dir(cache_dir)
             .with_execution_providers(with_execution_providers)
+            .maybe_with_intra_threads(with_intra_threads)
+            .maybe_with_inter_threads(with_inter_threads)
+            .maybe_with_memory_pattern(with_memory_pattern)
+            .maybe_with_optimization_level(with_optimization_level)
             .build()
             .await?;
 
@@ -89,20 +106,36 @@ impl FaceAnalyzer {
         #[builder(default = 0.5)] detector_score_threshold: f32,
         #[builder(default = 0.4)] detector_iou_threshold: f32,
         #[builder(default = &[])] with_execution_providers: &[ExecutionProviderDispatch],
+        with_intra_threads: Option<usize>,
+        with_inter_threads: Option<usize>,
+        with_memory_pattern: Option<bool>,
+        with_optimization_level: Option<GraphOptimizationLevel>,
     ) -> Result<Self, FaceIdError> {
         let detector = ScrfdDetector::builder(det_model)
             .input_size(detector_input_size)
             .score_threshold(detector_score_threshold)
             .iou_threshold(detector_iou_threshold)
             .with_execution_providers(with_execution_providers)
+            .maybe_with_intra_threads(with_intra_threads)
+            .maybe_with_inter_threads(with_inter_threads)
+            .maybe_with_memory_pattern(with_memory_pattern)
+            .maybe_with_optimization_level(with_optimization_level)
             .build()?;
 
         let embedder = ArcFaceEmbedder::builder(rec_model)
             .with_execution_providers(with_execution_providers)
+            .maybe_with_intra_threads(with_intra_threads)
+            .maybe_with_inter_threads(with_inter_threads)
+            .maybe_with_memory_pattern(with_memory_pattern)
+            .maybe_with_optimization_level(with_optimization_level)
             .build()?;
 
         let gender_age = GenderAgeEstimator::builder(attr_model)
             .with_execution_providers(with_execution_providers)
+            .maybe_with_intra_threads(with_intra_threads)
+            .maybe_with_inter_threads(with_inter_threads)
+            .maybe_with_memory_pattern(with_memory_pattern)
+            .maybe_with_optimization_level(with_optimization_level)
             .build()?;
 
         Ok(Self {
