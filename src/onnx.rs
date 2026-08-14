@@ -1,16 +1,12 @@
 use crate::error::FaceIdError;
 use ort::ep::ExecutionProviderDispatch;
-use ort::session::{Session, builder::GraphOptimizationLevel};
+use ort::session::Session;
+use ort::session::builder::GraphOptimizationLevel;
 use std::path::Path;
 
 #[derive(Debug)]
 pub struct OnnxSession {
     pub session: Session,
-    pub execution_providers: Vec<ExecutionProviderDispatch>,
-    pub optimization_level: Option<GraphOptimizationLevel>,
-    pub intra_threads: Option<usize>,
-    pub inter_threads: Option<usize>,
-    pub memory_pattern: Option<bool>,
 }
 
 impl OnnxSession {
@@ -22,32 +18,24 @@ impl OnnxSession {
         inter_threads: Option<usize>,
         memory_pattern: Option<bool>,
     ) -> Result<Self, FaceIdError> {
-        let eps = execution_providers;
         let mut session_builder = Session::builder()?;
-        if !eps.is_empty() {
-            session_builder = session_builder.with_execution_providers(eps)?;
+        if !execution_providers.is_empty() {
+            session_builder = session_builder.with_execution_providers(execution_providers)?;
         }
-        if let Some(optimization_level) = optimization_level {
-            session_builder = session_builder.with_optimization_level(optimization_level)?;
+        if let Some(opt_level) = optimization_level {
+            session_builder = session_builder.with_optimization_level(opt_level)?;
         }
-        if let Some(intra_threads) = intra_threads {
-            session_builder = session_builder.with_intra_threads(intra_threads)?;
+        if let Some(intra) = intra_threads {
+            session_builder = session_builder.with_intra_threads(intra)?;
         }
-        if let Some(inter_threads) = inter_threads {
-            session_builder = session_builder.with_inter_threads(inter_threads)?;
+        if let Some(inter) = inter_threads {
+            session_builder = session_builder.with_inter_threads(inter)?;
         }
-        if let Some(memory_pattern) = memory_pattern {
-            session_builder = session_builder.with_memory_pattern(memory_pattern)?;
+        if let Some(mem_pattern) = memory_pattern {
+            session_builder = session_builder.with_memory_pattern(mem_pattern)?;
         }
         let session = session_builder.commit_from_file(path)?;
 
-        Ok(Self {
-            session,
-            execution_providers: eps.to_vec(),
-            optimization_level,
-            intra_threads,
-            inter_threads,
-            memory_pattern,
-        })
+        Ok(Self { session })
     }
 }
