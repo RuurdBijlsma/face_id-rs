@@ -191,6 +191,26 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
+## Sharing an ONNX Runtime environment
+
+`ort` allows one `Environment` per process. When none is passed, `face_id` builds one the first time it
+creates a session and reuses it for every later session. If your application also runs its own `ort`
+sessions, build the environment yourself first and hand it to `face_id`, because a second
+`ort::init().build()` fails:
+
+```rust
+use face_id::analyzer::FaceAnalyzer;
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let environment = ort::init().build()?;
+    let analyzer = FaceAnalyzer::from_hf()
+        .with_environment(&environment)
+        .build()
+        .await?;
+}
+```
+
 ## Model Details
 
 ### Detection (SCRFD)

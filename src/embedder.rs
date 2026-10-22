@@ -5,6 +5,7 @@ use crate::onnx::OnnxSession;
 use bon::bon;
 use image::{ImageBuffer, Rgb};
 use ndarray::{Array2, Array4, Axis, s};
+use ort::environment::Environment;
 use ort::ep::ExecutionProviderDispatch;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Value;
@@ -27,6 +28,7 @@ impl ArcFaceEmbedder {
         with_inter_threads: Option<usize>,
         with_memory_pattern: Option<bool>,
         with_optimization_level: Option<GraphOptimizationLevel>,
+        with_environment: Option<&Environment>,
     ) -> Result<Self, FaceIdError> {
         let model_path = get_hf_model(model, cache_dir).await?;
         Self::builder(model_path)
@@ -35,6 +37,7 @@ impl ArcFaceEmbedder {
             .maybe_with_inter_threads(with_inter_threads)
             .maybe_with_memory_pattern(with_memory_pattern)
             .maybe_with_optimization_level(with_optimization_level)
+            .maybe_with_environment(with_environment)
             .build()
     }
 
@@ -46,6 +49,7 @@ impl ArcFaceEmbedder {
         with_inter_threads: Option<usize>,
         with_memory_pattern: Option<bool>,
         with_optimization_level: Option<GraphOptimizationLevel>,
+        with_environment: Option<&Environment>,
     ) -> Result<Self, FaceIdError> {
         let onnx = OnnxSession::new(
             model_path,
@@ -54,6 +58,7 @@ impl ArcFaceEmbedder {
             with_intra_threads,
             with_inter_threads,
             with_memory_pattern,
+            with_environment,
         )?;
 
         let input_name = onnx.session.inputs()[0].name().to_string();
