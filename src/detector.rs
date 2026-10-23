@@ -371,10 +371,10 @@ impl ScrfdDetector {
 
         // Buffalo-L SCRFD expects: (x - 127.5) / 128.0
         let channel_stride = h * w;
-        for (i, chunk) in raw.chunks_exact(3).enumerate() {
-            data[i] = (f32::from(chunk[0]) - 127.5) / 128.0;
-            data[i + channel_stride] = (f32::from(chunk[1]) - 127.5) / 128.0;
-            data[i + 2 * channel_stride] = (f32::from(chunk[2]) - 127.5) / 128.0;
+        for (i, [r, g, b]) in raw.as_chunks::<3>().0.iter().enumerate() {
+            data[i] = (f32::from(*r) - 127.5) / 128.0;
+            data[i + channel_stride] = (f32::from(*g) - 127.5) / 128.0;
+            data[i + 2 * channel_stride] = (f32::from(*b) - 127.5) / 128.0;
         }
 
         Ok(array)

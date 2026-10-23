@@ -225,10 +225,10 @@ impl GenderAgeEstimator {
             let batch_offset = batch_idx * 3 * channel_stride;
 
             // Buffalo-L attribute genderage.onnx expects: BGR channel order, 0-255 range
-            for (i, chunk) in raw.chunks_exact(3).enumerate() {
-                data[batch_offset + i] = f32::from(chunk[2]); // B
-                data[batch_offset + i + channel_stride] = f32::from(chunk[1]); // G
-                data[batch_offset + i + 2 * channel_stride] = f32::from(chunk[0]); // R
+            for (i, [r, g, b]) in raw.as_chunks::<3>().0.iter().enumerate() {
+                data[batch_offset + i] = f32::from(*b);
+                data[batch_offset + i + channel_stride] = f32::from(*g);
+                data[batch_offset + i + 2 * channel_stride] = f32::from(*r);
             }
         }
 

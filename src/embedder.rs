@@ -130,10 +130,10 @@ impl ArcFaceEmbedder {
             let raw = img.as_raw();
             let batch_offset = batch_idx * 3 * channel_stride;
 
-            for (i, chunk) in raw.chunks_exact(3).enumerate() {
-                data[batch_offset + i] = (f32::from(chunk[0]) - 127.5) / 127.5;
-                data[batch_offset + i + channel_stride] = (f32::from(chunk[1]) - 127.5) / 127.5;
-                data[batch_offset + i + 2 * channel_stride] = (f32::from(chunk[2]) - 127.5) / 127.5;
+            for (i, [r, g, b]) in raw.as_chunks::<3>().0.iter().enumerate() {
+                data[batch_offset + i] = (f32::from(*r) - 127.5) / 127.5;
+                data[batch_offset + i + channel_stride] = (f32::from(*g) - 127.5) / 127.5;
+                data[batch_offset + i + 2 * channel_stride] = (f32::from(*b) - 127.5) / 127.5;
             }
         }
 

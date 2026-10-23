@@ -11,6 +11,6 @@ async fn analyzer_uses_an_environment_built_by_the_caller() -> color_eyre::Resul
 
     let faces = analyzer.analyze(&image::open("assets/img/da-vinki.jpg")?)?;
 
-    assert!(!faces.is_empty());
+    assert_eq!(faces.len(), 1);
     Ok(())
 }
