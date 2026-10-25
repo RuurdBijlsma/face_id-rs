@@ -12,7 +12,7 @@ use image::{Rgb, RgbImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_hollow_rect_mut, draw_text_mut};
 use imageproc::rect::Rect;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -20,7 +20,6 @@ async fn main() -> Result<()> {
 
     let img_dir = "assets/img";
     let output_img_dir = Path::new("output_previews");
-    let output_json_path = "assets/reference_analysis.json";
 
     if !output_img_dir.exists() {
         fs::create_dir_all(output_img_dir)?;
@@ -30,22 +29,28 @@ async fn main() -> Result<()> {
     let font_data = include_bytes!("../assets/font/Roboto-Medium.ttf");
     let font = FontRef::try_from_slice(font_data)?;
 
-    let mut all_results = Vec::new();
-    println!("Processing images in: {img_dir}");
-    for entry in fs::read_dir(img_dir)? {
-        let entry = entry?;
-        let path = entry.path();
+    let mut img_paths: Vec<PathBuf> = fs::read_dir(img_dir)?
+        .filter_map(std::result::Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            if !path.is_file() {
+                return false;
+            }
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
+            matches!(ext.to_lowercase().as_str(), "jpg" | "jpeg" | "png")
+        })
+        .collect();
 
-        if !path.is_file() {
-            continue;
-        }
+    // Sort paths alphabetically for consistent execution order
+    img_paths.sort_unstable();
 
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
-        if !["jpg", "jpeg", "png"].contains(&ext.to_lowercase().as_str()) {
-            continue;
-        }
-
-        let filename = path.file_name().unwrap().to_string_lossy().to_string();
+    println!("Processing {} image(s) in: {img_dir}", img_paths.len());
+    for path in img_paths {
+        let filename = path
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
         println!("\nAnalyzing: {filename}");
 
         let img = image::open(&path)?;
@@ -104,18 +109,10 @@ async fn main() -> Result<()> {
 
         let out_path = output_img_dir.join(format!("analysis_{filename}"));
         output_img.save(&out_path)?;
-        all_results.push(serde_json::json!({
-            "filename": filename,
-            "results": analysis_results
-        }));
     }
 
-    let file = fs::File::create(output_json_path)?;
-    serde_json::to_writer_pretty(file, &all_results)?;
-
     println!("\nProcess complete!");
-    println!("Annotated images: {}", output_img_dir.display());
-    println!("Reference JSON: {output_json_path}");
+    println!("Annotated images saved to: {}", output_img_dir.display());
 
     Ok(())
 }
