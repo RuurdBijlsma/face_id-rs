@@ -1,13 +1,13 @@
 #![allow(
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
-    clippy::cast_precision_loss
+    clippy::cast_precision_loss,
+    clippy::too_many_lines
 )]
 
 use color_eyre::eyre::{Result, bail};
 use comfy_table::{Cell, Color, ContentArrangement, Table, presets::UTF8_FULL};
 use face_id::analyzer::{FaceAnalysis, FaceAnalyzer};
-use face_id::detector::BoundingBox;
 use image::GenericImageView;
 use std::fs;
 use std::path::Path;
@@ -29,10 +29,7 @@ impl MetricTracker {
     }
 
     fn min(&self) -> f64 {
-        self.values
-            .iter()
-            .copied()
-            .fold(f64::INFINITY, f64::min)
+        self.values.iter().copied().fold(f64::INFINITY, f64::min)
     }
 
     fn max(&self) -> f64 {
@@ -50,14 +47,13 @@ impl MetricTracker {
         }
     }
 
-    fn is_empty(&self) -> bool {
+    const fn is_empty(&self) -> bool {
         self.values.is_empty()
     }
 }
 
 #[derive(Default)]
 struct ConsistencyReport {
-    total_images: usize,
     total_ref_faces: usize,
     total_live_faces: usize,
     matched_faces: usize,
@@ -94,14 +90,19 @@ async fn main() -> Result<()> {
     println!("Initializing FaceAnalyzer...");
     let analyzer = FaceAnalyzer::from_hf().build().await?;
 
-    println!("\nEvaluating consistency across {} images...", ref_entries.len());
+    println!(
+        "\nEvaluating consistency across {} images...",
+        ref_entries.len()
+    );
     let mut report = ConsistencyReport::default();
-    report.total_images = ref_entries.len();
 
     for entry in &ref_entries {
         let img_path = img_dir.join(&entry.filename);
         if !img_path.exists() {
-            eprintln!("Warning: Image file '{}' not found, skipping.", img_path.display());
+            eprintln!(
+                "Warning: Image file '{}' not found, skipping.",
+                img_path.display()
+            );
             continue;
         }
 
@@ -135,14 +136,15 @@ async fn main() -> Result<()> {
             report.score_diffs.add(f64::from(score_diff));
 
             // 2. Bounding Box IoU
-            let iou = compute_iou(&live_face.detection.bbox, &ref_face.detection.bbox);
+            let iou = live_face.detection.bbox.iou(&ref_face.detection.bbox);
             report.bbox_ious.add(f64::from(iou));
             img_min_iou = img_min_iou.min(iou);
 
             // 3. Landmarks Pixel Drift (Euclidean distance on 5 keypoints)
-            if let (Some(live_lms), Some(ref_lms)) =
-                (&live_face.detection.landmarks, &ref_face.detection.landmarks)
-            {
+            if let (Some(live_lms), Some(ref_lms)) = (
+                &live_face.detection.landmarks,
+                &ref_face.detection.landmarks,
+            ) {
                 for (pt_live, pt_ref) in live_lms.iter().zip(ref_lms.iter()) {
                     let dx = (pt_live.0 - pt_ref.0) * width as f32;
                     let dy = (pt_live.1 - pt_ref.1) * height as f32;
@@ -209,35 +211,16 @@ async fn main() -> Result<()> {
     }
 }
 
-/// Computes IoU between two bounding boxes.
-fn compute_iou(a: &BoundingBox, b: &BoundingBox) -> f32 {
-    let x1 = a.x1.max(b.x1);
-    let y1 = a.y1.max(b.y1);
-    let x2 = a.x2.min(b.x2);
-    let y2 = a.y2.min(b.y2);
-
-    let intersection = (x2 - x1).max(0.0) * (y2 - y1).max(0.0);
-    if intersection <= 0.0 {
-        return 0.0;
-    }
-
-    intersection / (a.area() + b.area() - intersection)
-}
-
-/// Matches reference faces to live faces using greedy IoU matching.
+/// Matches reference faces to live faces using greedy bipartite `IoU` matching.
 fn match_faces(
     ref_faces: &[FaceAnalysis],
     live_faces: &[FaceAnalysis],
     iou_threshold: f32,
 ) -> (Vec<(usize, usize)>, Vec<usize>, Vec<usize>) {
-    let mut matches = Vec::new();
-    let mut matched_live = vec![false; live_faces.len()];
-    let mut matched_ref = vec![false; ref_faces.len()];
-
     let mut candidate_pairs = Vec::new();
     for (r_idx, r_face) in ref_faces.iter().enumerate() {
         for (l_idx, l_face) in live_faces.iter().enumerate() {
-            let iou = compute_iou(&r_face.detection.bbox, &l_face.detection.bbox);
+            let iou = r_face.detection.bbox.iou(&l_face.detection.bbox);
             if iou >= iou_threshold {
                 candidate_pairs.push((r_idx, l_idx, iou));
             }
@@ -246,6 +229,10 @@ fn match_faces(
 
     // Sort descending by IoU
     candidate_pairs.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut matches = Vec::new();
+    let mut matched_live = vec![false; live_faces.len()];
+    let mut matched_ref = vec![false; ref_faces.len()];
 
     for (r_idx, l_idx, _) in candidate_pairs {
         if !matched_ref[r_idx] && !matched_live[l_idx] {
@@ -258,25 +245,25 @@ fn match_faces(
     let unmatched_ref: Vec<usize> = matched_ref
         .iter()
         .enumerate()
-        .filter_map(|(i, &m)| if !m { Some(i) } else { None })
+        .filter_map(|(i, &m)| if m { None } else { Some(i) })
         .collect();
 
     let unmatched_live: Vec<usize> = matched_live
         .iter()
         .enumerate()
-        .filter_map(|(i, &m)| if !m { Some(i) } else { None })
+        .filter_map(|(i, &m)| if m { None } else { Some(i) })
         .collect();
 
     (matches, unmatched_ref, unmatched_live)
 }
 
-/// Computes Cosine Distance (1 - cos) and L_infinity norm (max absolute element difference).
+/// Computes Cosine Distance (1 - cos) and `L_infinity` norm (max absolute element difference).
 fn compute_embedding_metrics(emb1: &[f32], emb2: &[f32]) -> (f32, f32) {
     let mut dot_product = 0.0f32;
     let mut max_abs_diff = 0.0f32;
 
     for (&a, &b) in emb1.iter().zip(emb2.iter()) {
-        dot_product += a * b;
+        dot_product = f32::mul_add(a, b, dot_product);
         let diff = (a - b).abs();
         if diff > max_abs_diff {
             max_abs_diff = diff;

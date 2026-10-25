@@ -61,6 +61,22 @@ impl BoundingBox {
         self.width() * self.height()
     }
 
+    /// Computes Intersection-over-Union (`IoU`) with another bounding box.
+    #[must_use]
+    pub fn iou(&self, other: &Self) -> f32 {
+        let x1 = self.x1.max(other.x1);
+        let y1 = self.y1.max(other.y1);
+        let x2 = self.x2.min(other.x2);
+        let y2 = self.y2.min(other.y2);
+
+        let intersection = (x2 - x1).max(0.0) * (y2 - y1).max(0.0);
+        if intersection <= 0.0 {
+            return 0.0;
+        }
+
+        intersection / (self.area() + other.area() - intersection)
+    }
+
     /// Scales relative coordinates back to absolute pixel coordinates.
     #[must_use]
     pub fn scale(&self, width: u32, height: u32) -> Self {
@@ -461,9 +477,9 @@ impl ScrfdDetector {
 
         let mut kept_faces: Vec<DetectedFace> = Vec::with_capacity(faces.len());
         for face in faces {
-            let is_suppressed = kept_faces.iter().any(|kept| {
-                Self::compute_intersection_over_union(&face.bbox, &kept.bbox) > iou_threshold
-            });
+            let is_suppressed = kept_faces
+                .iter()
+                .any(|kept| face.bbox.iou(&kept.bbox) > iou_threshold);
 
             if !is_suppressed {
                 kept_faces.push(face);
@@ -493,19 +509,5 @@ impl ScrfdDetector {
         } else {
             Ok(array.to_owned().into_dimensionality::<Ix2>()?)
         }
-    }
-
-    fn compute_intersection_over_union(a: &BoundingBox, b: &BoundingBox) -> f32 {
-        let x1 = a.x1.max(b.x1);
-        let y1 = a.y1.max(b.y1);
-        let x2 = a.x2.min(b.x2);
-        let y2 = a.y2.min(b.y2);
-
-        let intersection = (x2 - x1).max(0.0) * (y2 - y1).max(0.0);
-        if intersection <= 0.0 {
-            return 0.0;
-        }
-
-        intersection / (a.area() + b.area() - intersection)
     }
 }
