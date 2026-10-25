@@ -6,6 +6,7 @@ use crate::gender_age::{Gender, GenderAgeEstimator};
 use crate::model_manager::HfModel;
 use bon::bon;
 use image::DynamicImage;
+use ort::environment::Environment;
 use ort::ep::ExecutionProviderDispatch;
 use ort::session::builder::GraphOptimizationLevel;
 use rayon::prelude::*;
@@ -54,6 +55,7 @@ impl FaceAnalyzer {
         with_inter_threads: Option<usize>,
         with_memory_pattern: Option<bool>,
         with_optimization_level: Option<GraphOptimizationLevel>,
+        with_environment: Option<&Environment>,
     ) -> Result<Self, FaceIdError> {
         let detector = ScrfdDetector::from_hf()
             .input_size(detector_input_size)
@@ -66,6 +68,7 @@ impl FaceAnalyzer {
             .maybe_with_inter_threads(with_inter_threads)
             .maybe_with_memory_pattern(with_memory_pattern)
             .maybe_with_optimization_level(with_optimization_level)
+            .maybe_with_environment(with_environment)
             .build()
             .await?;
         let embedder = ArcFaceEmbedder::from_hf()
@@ -76,6 +79,7 @@ impl FaceAnalyzer {
             .maybe_with_inter_threads(with_inter_threads)
             .maybe_with_memory_pattern(with_memory_pattern)
             .maybe_with_optimization_level(with_optimization_level)
+            .maybe_with_environment(with_environment)
             .build()
             .await?;
         let gender_age = GenderAgeEstimator::from_hf()
@@ -86,6 +90,7 @@ impl FaceAnalyzer {
             .maybe_with_inter_threads(with_inter_threads)
             .maybe_with_memory_pattern(with_memory_pattern)
             .maybe_with_optimization_level(with_optimization_level)
+            .maybe_with_environment(with_environment)
             .build()
             .await?;
 
@@ -110,6 +115,7 @@ impl FaceAnalyzer {
         with_inter_threads: Option<usize>,
         with_memory_pattern: Option<bool>,
         with_optimization_level: Option<GraphOptimizationLevel>,
+        with_environment: Option<&Environment>,
     ) -> Result<Self, FaceIdError> {
         let detector = ScrfdDetector::builder(det_model)
             .input_size(detector_input_size)
@@ -120,6 +126,7 @@ impl FaceAnalyzer {
             .maybe_with_inter_threads(with_inter_threads)
             .maybe_with_memory_pattern(with_memory_pattern)
             .maybe_with_optimization_level(with_optimization_level)
+            .maybe_with_environment(with_environment)
             .build()?;
 
         let embedder = ArcFaceEmbedder::builder(rec_model)
@@ -128,6 +135,7 @@ impl FaceAnalyzer {
             .maybe_with_inter_threads(with_inter_threads)
             .maybe_with_memory_pattern(with_memory_pattern)
             .maybe_with_optimization_level(with_optimization_level)
+            .maybe_with_environment(with_environment)
             .build()?;
 
         let gender_age = GenderAgeEstimator::builder(attr_model)
@@ -136,6 +144,7 @@ impl FaceAnalyzer {
             .maybe_with_inter_threads(with_inter_threads)
             .maybe_with_memory_pattern(with_memory_pattern)
             .maybe_with_optimization_level(with_optimization_level)
+            .maybe_with_environment(with_environment)
             .build()?;
 
         Ok(Self {
