@@ -911,7 +911,7 @@ dependencies = [
 
 [[package]]
 name = "face_id"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "ab_glyph",
  "bon",
