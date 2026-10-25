@@ -10,15 +10,15 @@ license-file = "LICENSE"
 documentation = "https://docs.rs/face_id"
 
 [dependencies]
-ort = { version = "2.0.0-rc.14", features = ["ndarray"] }
+ort = { version = "2.0.0-rc.15", features = ["ndarray"] }
 ndarray = "0.17.2"
 nalgebra = "0.35.0"
-thiserror = "2.0.19"
+thiserror = "2.0.21"
 image = { version = "0.25.10", features = ["rayon"] }
 serde = { version = "1.0.229", optional = true, features = ["derive"] }
-serde_json = { version = "1.0.151", optional = true }
+serde_json = { version = "1.0.154", optional = true }
 hf-hub = { version = "1.0.0", optional = true }
-bon = "3.9.3"
+bon = "3.10.3"
 rayon = "1.12.0"
 hdbscan = { version = "0.12.0", optional = true }
 tracing = {version = "0.1.44", optional = true}
@@ -26,11 +26,11 @@ tracing = {version = "0.1.44", optional = true}
 [dev-dependencies]
 color-eyre = "0.6.5"
 serde = { version = "1.0.229", features = ["derive"] }
-serde_json = { version = "1.0.151" }
+serde_json = { version = "1.0.154" }
 imageproc = "0.27.0"
-criterion = { version = "0.8.1", features = ["html_reports"] }
+criterion = { version = "0.8.2", features = ["html_reports"] }
 ab_glyph = "0.2.32"
-tokio = { version = "1.53.1", features = ["rt", "macros"] }
+tokio = { version = "1.54.1", features = ["rt", "macros"] }
 walkdir = "2.5.0"
 hdbscan = "0.12.0"
 tracing-subscriber = "0.3.23"
