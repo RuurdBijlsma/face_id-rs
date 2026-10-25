@@ -7,6 +7,7 @@ use crate::onnx::OnnxSession;
 use bon::bon;
 use image::{DynamicImage, ImageBuffer, Rgb};
 use ndarray::Array4;
+use ort::environment::Environment;
 use ort::ep::ExecutionProviderDispatch;
 use ort::session::builder::GraphOptimizationLevel;
 use ort::value::Value;
@@ -43,6 +44,7 @@ impl GenderAgeEstimator {
         with_inter_threads: Option<usize>,
         with_memory_pattern: Option<bool>,
         with_optimization_level: Option<GraphOptimizationLevel>,
+        with_environment: Option<&Environment>,
     ) -> Result<Self, FaceIdError> {
         let model_path = get_hf_model(model, cache_dir).await?;
         Self::builder(model_path)
@@ -51,6 +53,7 @@ impl GenderAgeEstimator {
             .maybe_with_inter_threads(with_inter_threads)
             .maybe_with_memory_pattern(with_memory_pattern)
             .maybe_with_optimization_level(with_optimization_level)
+            .maybe_with_environment(with_environment)
             .build()
     }
 
@@ -62,6 +65,7 @@ impl GenderAgeEstimator {
         with_inter_threads: Option<usize>,
         with_memory_pattern: Option<bool>,
         with_optimization_level: Option<GraphOptimizationLevel>,
+        with_environment: Option<&Environment>,
     ) -> Result<Self, FaceIdError> {
         let onnx = OnnxSession::new(
             model_path,
@@ -70,6 +74,7 @@ impl GenderAgeEstimator {
             with_intra_threads,
             with_inter_threads,
             with_memory_pattern,
+            with_environment,
         )?;
 
         let input_name = onnx.session.inputs()[0].name().to_string();
@@ -220,10 +225,10 @@ impl GenderAgeEstimator {
             let batch_offset = batch_idx * 3 * channel_stride;
 
             // Buffalo-L attribute genderage.onnx expects: BGR channel order, 0-255 range
-            for (i, chunk) in raw.chunks_exact(3).enumerate() {
-                data[batch_offset + i] = f32::from(chunk[2]); // B
-                data[batch_offset + i + channel_stride] = f32::from(chunk[1]); // G
-                data[batch_offset + i + 2 * channel_stride] = f32::from(chunk[0]); // R
+            for (i, [r, g, b]) in raw.as_chunks::<3>().0.iter().enumerate() {
+                data[batch_offset + i] = f32::from(*b);
+                data[batch_offset + i + channel_stride] = f32::from(*g);
+                data[batch_offset + i + 2 * channel_stride] = f32::from(*r);
             }
         }
 

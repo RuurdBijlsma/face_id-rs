@@ -173,8 +173,8 @@ fn warp_affine(
         let py_f = py as f32;
         for px in 0..output_size {
             let px_f = px as f32;
-            let sx = ia * px_f + ib * py_f + itx;
-            let sy = ic * px_f + id * py_f + ity;
+            let sx = ia.mul_add(px_f, ib.mul_add(py_f, itx));
+            let sy = ic.mul_add(px_f, id.mul_add(py_f, ity));
             output.put_pixel(px, py, bilinear_sample(img, sx, sy, orig_w, orig_h));
         }
     }
